@@ -12,12 +12,16 @@ key stays in the keychain behind apiKeyHelper.
 from __future__ import annotations
 
 import http.client
+import itertools
 import json
 import os
+import random
 import re
 import sys
 import hashlib
 import threading
+import time
+from email.utils import parsedate_to_datetime
 from urllib.parse import unquote, urlsplit
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -40,6 +44,13 @@ LOG_MAX_BYTES = 1 << 20
 # 4096 truncated long errors mid-sentence, so a field named late was unlearnable.
 ERROR_BODY_LIMIT = 65536
 MAX_REPAIR_ATTEMPTS = 6
+
+# Transient policy: how long one wait may run, how long the proxy stays quiet
+# after giving up, and how many waits one request spends before it gives up.
+MAX_RETRY_INTERVAL = float(os.environ.get("CLAUDE_MUSE_MAX_RETRY_INTERVAL", "30"))
+TRANSIENT_COOLDOWN = float(os.environ.get("CLAUDE_MUSE_TRANSIENT_COOLDOWN", "60"))
+MAX_TRANSIENT_WAITS = 3
+TRANSIENT_STATUSES = {408, 429, 500, 502, 503, 504}
 
 SHAPES = os.path.expanduser("~/.config/claude-muse/shapes.json")
 
@@ -82,19 +93,176 @@ def log(msg: str) -> None:
             pass
 
 
+def _atomic_write_json(path: str, obj) -> None:
+    """Persist state so a crash mid-write cannot corrupt it.
+
+    Write aside, fsync, rename over: readers see the old file or the new one,
+    never half of each. Callers already hold the lock for the state they write.
+    """
+    tmp = f"{path}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w") as fh:
+            json.dump(obj, fh, indent=2, sort_keys=True)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+# Request observability: every request gets an id, a latency line and a tally.
+# In memory only, counters never bodies, so the hot path stays credential-safe.
+_request_ids = itertools.count(1)
+_counters_lock = threading.Lock()
+_counters = {
+    "requests_total": 0,
+    "by_status": {"2xx": 0, "400": 0, "429": 0, "5xx": 0, "other": 0},
+    "transient_retries_total": 0,
+    "learned_hits_total": 0,
+}
+_cooldown_until = None  # P0-4 fills this: a monotonic timestamp, or None when clear
+_STARTED = time.monotonic()
+
+
+def _count(status: int) -> None:
+    """One request, one tally, by the status the client saw."""
+    if 200 <= status <= 299:
+        bucket = "2xx"
+    elif status == 400:
+        bucket = "400"
+    elif status == 429:
+        bucket = "429"
+    elif 500 <= status <= 599:
+        bucket = "5xx"
+    else:
+        bucket = "other"
+    with _counters_lock:
+        _counters["requests_total"] += 1
+        _counters["by_status"][bucket] += 1
+
+
+def _request_line(rid: str, command: str, path: str, status: int, ms: int,
+                  attempts: int, note: str, detail: str = "") -> str:
+    line = f"{rid} {command} {path} {status} {ms}ms attempts={attempts} [{note}]"
+    return f"{line} {detail}" if detail else line
+
+
+# Request-scoped failures: the request itself is the problem, so waiting,
+# resending or cooling down helps nothing. Matched before any retry decision.
+_STOP_STATUSES = {401, 402}
+_CONTEXT_STOP = re.compile(
+    r"context[^.]{0,40}too[^.]{0,40}long|prompt[^.]{0,40}too[^.]{0,40}long|"
+    r"maximum context",
+    re.IGNORECASE,
+)
+_AUTH_STOP = re.compile(
+    r"invalid[^.]{0,40}api[^.]{0,40}key|billing_error|unauthorized|authentication",
+    re.IGNORECASE,
+)
+
+
+def _is_stop(status: int, snippet: str) -> bool:
+    if status in _STOP_STATUSES:
+        return True
+    text = snippet or ""
+    return bool(_CONTEXT_STOP.search(text) or _AUTH_STOP.search(text))
+
+
+def _stop_hint(status: int, snippet: str) -> str:
+    text = snippet or ""
+    if _CONTEXT_STOP.search(text):
+        return "hint: context exceeds the window; compact or trim and retry"
+    if status in _STOP_STATUSES or _AUTH_STOP.search(text):
+        return "hint: credential or billing; check the key, not the proxy"
+    return ""
+
+
+def parse_retry_after(value, now=None):
+    """Seconds from a Retry-After header, or None when absent or unparseable."""
+    if not value:
+        return None
+    value = value.strip()
+    if re.fullmatch(r"\d+", value):
+        return int(value)
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    base = now or datetime.now(timezone.utc)
+    return max(0, int((when - base).total_seconds()))
+
+
+def transient_backoff(wait_index: int, retry_after=None, rand_fn=random.uniform) -> float:
+    """Seconds to wait before resending. A named Retry-After is honored as far
+    as the cap allows; otherwise exponential backoff with jitter."""
+    if retry_after is not None:
+        return min(float(retry_after), MAX_RETRY_INTERVAL)
+    return min(2.0 ** wait_index, MAX_RETRY_INTERVAL) * rand_fn(0.5, 1.0)
+
+
+def _take_transient_wait(waits: list, wait_index: int, label: str,
+                       retry_after=None) -> float:
+    """Wait out one transient failure, recording it for the log line."""
+    wait = transient_backoff(wait_index, retry_after)
+    waits.append(f"{label}:{wait:g}s")
+    with _counters_lock:
+        _counters["transient_retries_total"] += 1
+    _sleep(wait)
+    return wait
+
+
+def _in_cooldown(now=None) -> bool:
+    if _cooldown_until is None:
+        return False
+    return (now if now is not None else time.monotonic()) < _cooldown_until
+
+
+def _enter_cooldown(now=None) -> None:
+    global _cooldown_until
+    _cooldown_until = (now if now is not None else time.monotonic()) + TRANSIENT_COOLDOWN
+
+
+_sleep = time.sleep  # indirection so tests observe backoff without waiting
+
+
 # Fields the endpoint has rejected by name at some point. Seeded with the ones
 # already measured; the retry loop adds any others it meets, so a new gap costs
-# one slow request instead of a debugging session.
+# one slow request instead of a debugging session. Stored as field ->
+# {first_seen, hits} so a stale entry can be judged before it is removed.
+# A dict in memory too: rewrite() only iterates and tests membership, so the
+# richer record costs it nothing.
 SEEDED_DROPS = ["stop_sequences", "safeguards"]
+LEARNED_MAX_FIELDS = 100
 _learned_lock = threading.Lock()
 
 
-def load_learned() -> set[str]:
+def load_learned() -> dict:
     try:
         with open(LEARNED) as fh:
-            return set(json.load(fh)) | set(SEEDED_DROPS)
+            stored = json.load(fh)
     except (OSError, ValueError):
-        return set(SEEDED_DROPS)
+        stored = []
+    if isinstance(stored, dict):
+        learned = {k: v for k, v in stored.items() if isinstance(v, dict)}
+    elif isinstance(stored, list):
+        # The pre-P0-2 bare list. Upgrading keeps every field it taught us.
+        learned = {k: {"first_seen": None, "hits": 0} for k in stored if isinstance(k, str)}
+    else:
+        learned = {}
+    for seed in SEEDED_DROPS:
+        learned.setdefault(seed, {"first_seen": None, "hits": 0})
+    return learned
 
 
 _learned = load_learned()
@@ -102,14 +270,19 @@ _learned = load_learned()
 
 def remember(field: str) -> None:
     with _learned_lock:
-        if field in _learned:
+        record = _learned.get(field)
+        if record is not None:
+            # Already stripped on the way through, so the endpoint naming it
+            # again means the strip did not reach it. Count it, quietly.
+            record["hits"] = record.get("hits", 0) + 1
             return
-        _learned.add(field)
-        try:
-            with open(LEARNED, "w") as fh:
-                json.dump(sorted(_learned), fh, indent=2)
-        except OSError:
-            pass
+        if len(_learned) >= LEARNED_MAX_FIELDS:
+            log(f"learned-full: cannot record `{field}`, {LEARNED_MAX_FIELDS} fields kept")
+            return
+        _learned[field] = {"first_seen": _utcnow(), "hits": 1}
+        _atomic_write_json(LEARNED, _learned)
+        with _counters_lock:
+            _counters["learned_hits_total"] += 1
     log(f"learned: drop `{field}`")
 
 
@@ -213,13 +386,21 @@ CENSUS_HEADERS = ("anthropic-beta", "anthropic-version", "accept")
 
 _shapes_lock = threading.Lock()
 
+# The census is observations, so eviction is safe: a shape seen again is simply
+# recorded again. Insertion-ordered dict as an ordered set; order resets to
+# sorted on reload, which is close enough for a cache.
+SHAPES_MAX = 500
 
-def load_shapes() -> set[str]:
+
+def load_shapes() -> dict:
     try:
         with open(SHAPES) as fh:
-            return set(json.load(fh))
+            stored = json.load(fh)
     except (OSError, ValueError):
-        return set()
+        return {}
+    if not isinstance(stored, list):
+        return {}
+    return {s: None for s in stored if isinstance(s, str)}
 
 
 _shapes = load_shapes()
@@ -278,12 +459,10 @@ def census(payload: dict, headers, raw: bytes = b"") -> None:
     with _shapes_lock:
         if sig in _shapes:
             return
-        _shapes.add(sig)
-        try:
-            with open(SHAPES, "w") as fh:
-                json.dump(sorted(_shapes), fh, indent=2)
-        except OSError:
-            pass
+        _shapes[sig] = None
+        while len(_shapes) > SHAPES_MAX:
+            _shapes.pop(next(iter(_shapes)))
+        _atomic_write_json(SHAPES, sorted(_shapes))
     log(f"shape: {sig}")
 
 
@@ -393,6 +572,16 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _serve_buffered(self, status: int, body: bytes, content_type: str) -> None:
+        """Answer from bytes already read, when the retry loop consumed the stream
+        deciding what to do. The client sees the upstream's own error shape."""
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        self.wfile.flush()
+
     def _upstream(self, body: bytes):
         headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_BY_HOP}
         # Compression would have to be undone before it could be re-chunked, and the
@@ -491,12 +680,23 @@ class Handler(BaseHTTPRequestHandler):
         self._chunk(raw)
 
     def _health(self) -> None:
+        with _counters_lock:
+            by_status = dict(_counters["by_status"])
+            requests_total = _counters["requests_total"]
+            transient_retries = _counters["transient_retries_total"]
+            learned_hits = _counters["learned_hits_total"]
         payload = json.dumps({
             "ok": True,
             "version": VERSION,
             "pid": os.getpid(),
             "upstream": UPSTREAM,
             "port": PORT,
+            "uptime_s": int(time.monotonic() - _STARTED),
+            "requests": requests_total,
+            "by_status": by_status,
+            "transient_retries": transient_retries,
+            "learned_hits": learned_hits,
+            "cooldown_until": _cooldown_until,
             "min_max_tokens": MIN_MAX_TOKENS,
             "learned": sorted(_learned),
             "shapes": len(_shapes),
@@ -511,6 +711,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.split("?")[0] == "/__health":
             self._health()
             return
+        rid = f"r{next(_request_ids)}"
+        start = time.monotonic()
         length = int(self.headers.get("Content-Length") or 0)
         original = self.rfile.read(length) if length else b""
         rewritable = self.command == "POST" and self.path.startswith("/v1/messages")
@@ -523,22 +725,91 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, UnicodeDecodeError):
                 pass
 
-        # A 400 that names a field is the endpoint teaching us its subset. Learn it,
-        # strip it, retry. Nothing has been written to the client yet, so the retry
-        # is invisible; the cost is one slow request the first time a gap appears.
+        # Two retries share this budget of upstream sends. A 400 that names a field
+        # is the endpoint teaching us its subset: learn it, strip it, resend. A
+        # transient failure (429, 503, a dropped connection) is the endpoint asking
+        # for patience: wait and resend unchanged. Nothing has been written to the
+        # client yet in either case, so both retries are invisible.
         drop_choice = False
         detail = ""
+        attempts = 0
+        waits = []
+        transient_waits = 0
+
+        def full_note():
+            note = " ".join(notes) if notes else "-"
+            if waits:
+                note += " transient " + "+".join(waits)
+            return note
+
+        def stop_and_serve(status, raw_detail, ctype):
+            """A request-scoped failure: no retry, no cooldown, upstream's own bytes."""
+            text = raw_detail.decode("utf8", "replace")
+            hint = _stop_hint(status, text)
+            stopped = text.strip() + (f" [{hint}]" if hint else "")
+            ms = int((time.monotonic() - start) * 1000)
+            log(_request_line(rid, self.command, self.path, status, ms, attempts,
+                              full_note(), stopped))
+            _count(status)
+            self._serve_buffered(status, raw_detail, ctype)
+
         for _ in range(MAX_REPAIR_ATTEMPTS):
+            attempts += 1
+            if _in_cooldown():
+                ms = int((time.monotonic() - start) * 1000)
+                log(_request_line(rid, self.command, self.path, 503, ms, attempts,
+                                  "cooldown"))
+                _count(503)
+                self._send_error(503, "claude-muse proxy: upstream cooling down "
+                                      "after repeated failures; retry shortly")
+                return
             try:
                 conn, upstream = self._upstream(body)
             except OSError as exc:
-                log(f"{self.command} {self.path} upstream-error {exc}")
+                if transient_waits < MAX_TRANSIENT_WAITS:
+                    _take_transient_wait(waits, transient_waits, "conn")
+                    transient_waits += 1
+                    continue
+                _enter_cooldown()
+                ms = int((time.monotonic() - start) * 1000)
+                log(f"{rid} {self.command} {self.path} upstream-error "
+                    f"{ms}ms attempts={attempts} [{full_note()}] {exc}")
+                _count(502)
                 self._send_error(502, f"claude-muse proxy: {exc}")
+                return
+            if upstream.status in TRANSIENT_STATUSES:
+                retry_after = upstream.getheader("Retry-After")
+                ctype = upstream.getheader("Content-Type") or "application/json"
+                raw_detail = upstream.read(ERROR_BODY_LIMIT)
+                detail = raw_detail.decode("utf8", "replace")
+                conn.close()
+                if _is_stop(upstream.status, detail):
+                    stop_and_serve(upstream.status, raw_detail, ctype)
+                    return
+                if transient_waits < MAX_TRANSIENT_WAITS:
+                    _take_transient_wait(waits, transient_waits, str(upstream.status),
+                                         parse_retry_after(retry_after))
+                    transient_waits += 1
+                    continue
+                _enter_cooldown()
+                ms = int((time.monotonic() - start) * 1000)
+                log(_request_line(rid, self.command, self.path, upstream.status,
+                                  ms, attempts, full_note(), detail.strip()))
+                _count(upstream.status)
+                self._serve_buffered(upstream.status, raw_detail, ctype)
                 return
             if upstream.status != 400 or not rewritable:
                 break
-            detail = upstream.read(ERROR_BODY_LIMIT).decode("utf8", "replace")
+            ctype = upstream.getheader("Content-Type") or "application/json"
+            raw_detail = upstream.read(ERROR_BODY_LIMIT)
+            detail = raw_detail.decode("utf8", "replace")
             conn.close()
+            if _is_stop(upstream.status, detail):
+                # A 400 the request itself caused, most often context over the
+                # window. Learning has nothing to teach here; hand back the
+                # endpoint's own words plus where to look.
+                stop_and_serve(upstream.status, raw_detail, ctype)
+                return
             fields = offending_fields(detail)
             if fields:
                 for field in fields:
@@ -548,12 +819,18 @@ class Handler(BaseHTTPRequestHandler):
                 # dead-end as "unnamed". Drop the key rather than forcing auto.
                 drop_choice = True
             else:
-                log(f"{self.command} {self.path} 400 unnamed [{' '.join(notes)}] {detail.strip()}")
+                ms = int((time.monotonic() - start) * 1000)
+                log(_request_line(rid, self.command, self.path, 400, ms, attempts,
+                                  f"unnamed {full_note()}", detail.strip()))
+                _count(400)
                 self._send_error(400, detail.strip() or "claude-muse proxy: upstream rejected the request")
                 return
             retried, extra = rewrite(original, drop_tool_choice=drop_choice)
             if retried == body:
-                log(f"{self.command} {self.path} 400 unrecoverable [{' '.join(notes)}] {detail.strip()}")
+                ms = int((time.monotonic() - start) * 1000)
+                log(_request_line(rid, self.command, self.path, 400, ms, attempts,
+                                  f"unrecoverable {full_note()}", detail.strip()))
+                _count(400)
                 self._send_error(400, detail.strip() or "claude-muse proxy: upstream rejected the request")
                 return
             body, notes = retried, extra
@@ -561,11 +838,13 @@ class Handler(BaseHTTPRequestHandler):
             # The budget ran out with the last rewrite never sent. Say so, rather
             # than falling through to report a 400 whose body was already consumed
             # off a connection that is now closed.
-            log(f"{self.command} {self.path} 400 attempts-exhausted [{' '.join(notes)}] {detail.strip()}")
+            ms = int((time.monotonic() - start) * 1000)
+            log(_request_line(rid, self.command, self.path, 400, ms, attempts,
+                              f"attempts-exhausted {full_note()}", detail.strip()))
+            _count(400)
             self._send_error(400, detail.strip() or "claude-muse proxy: repair budget exhausted")
             return
 
-        note = " ".join(notes) if notes else "-"
         failed = upstream.status >= 300
 
         sources = SearchSources() if (rewritable and not failed and wants_web_search(body)) else None
@@ -595,19 +874,29 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(b"0\r\n\r\n")
             self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
-            log(f"{self.command} {self.path} {upstream.status} client-hung-up [{note}]")
+            ms = int((time.monotonic() - start) * 1000)
+            log(f"{rid} {self.command} {self.path} {upstream.status} "
+                f"{ms}ms attempts={attempts} client-hung-up [{full_note()}]")
+            _count(upstream.status)
             conn.close()
             return
         finally:
             conn.close()
 
-        if failed and self.path != "/api/hello":
+        ms = int((time.monotonic() - start) * 1000)
+        if failed and self.path == "/api/hello":
             # /api/hello is Claude Code's reachability ping; api.meta.ai has never
             # served it, so its 404 is background noise rather than a finding.
+            # Uncounted as well as unlogged, so the tallies stay about real traffic.
+            return
+        _count(upstream.status)
+        if failed:
             detail = bytes(captured).decode("utf8", "replace").strip()
-            log(f"{self.command} {self.path} {upstream.status} [{note}] {detail}")
-        elif notes:
-            log(f"{self.command} {self.path} {upstream.status} [{note}]")
+            log(_request_line(rid, self.command, self.path, upstream.status, ms,
+                              attempts, full_note(), detail))
+        else:
+            log(_request_line(rid, self.command, self.path, upstream.status, ms,
+                              attempts, full_note()))
 
     do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = do_HEAD = _relay
 

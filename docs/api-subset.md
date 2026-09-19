@@ -23,7 +23,7 @@ The last two rows are why **subagents never launched**. Claude Code's auto mode 
 
 Only the named form is rewritten. `any` and `none` pass through, because the only rejection ever measured is the named one, and forcing `none` to `auto` would turn "do not call tools" into "call tools if you like" - the proxy granting a permission rather than repairing a shape. If `any` or `none` does turn out to be rejected, the retry path drops the field instead of replacing it: absence asserts nothing, where `auto` asserts something.
 
-**It learns the rest.** A `400` that names a field in backticks is the endpoint describing its own subset, so the proxy records the name in `learned.json`, strips it and retries - before anything reaches Claude Code, so the only visible cost is one slow request the first time a gap appears. `stop_sequences`, `safeguards` and `top_k` were all found this way rather than by hand.
+**It learns the rest.** A `400` that names a field in backticks is the endpoint describing its own subset, so the proxy records the name, first sighting and hit count in `learned.json`, strips it and retries - before anything reaches Claude Code, so the only visible cost is one slow request the first time a gap appears. `stop_sequences`, `safeguards` and `top_k` were all found this way rather than by hand.
 
 Two things worth knowing:
 
@@ -47,13 +47,14 @@ Two things this is *not*. It is not the status line's one-turn lag, which is a d
 | Symptom | Cause |
 | --- | --- |
 | `402 billing_error` | a pay-as-you-go key is in play instead of the subscription key |
+| `429` / `503` from upstream | the proxy waits and resends up to 3 times, then cools down for 60s and answers `503` fast until it clears |
 | `401` + "Both ANTHROPIC_AUTH_TOKEN and apiKeyHelper set" | stale shell holding an old function definition — `exec zsh` |
 | `401`, helper prints nothing | keychain item renamed or login expired — re-run `muse login`, then check the `service`/`account` hardcoded in `api-key.sh` |
 | context compacts far too early | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` lost from the function |
 | every request fails, nothing in `proxy.log` | the proxy is down — preflight should have started it; check `proxy.err` |
 | anything at all in `proxy.err` | a genuine crash. The two files stopped being duplicates, so this one is signal now |
 | `/context` numbers look implausible | the count is Claude Code's `chars/4` fallback, not a measurement — see **Counting tokens** |
-| a field is being stripped that the endpoint now supports | `learned.json` only grows. Remove the entry by hand and restart the proxy |
+| a field is being stripped that the endpoint now supports | `learned.json` holds 100 entries and only grows to there. Remove the entry by hand and restart the proxy |
 | `bash` looks blocked in auto mode, once, early | the held "auto mode isn't eligible" notice. `CLAUDE_CODE_AUTO_MODE_SERVER=0` in preflight prevents it; if you see it, a shell predating that change is in play |
 | auto mode refuses an ordinary command | a genuine verdict from `muse-spark-1.3`, which is the fallback classifier here. Add a `Bash(...)` allow rule for it, or leave auto mode with `Shift+Tab` |
 | status line says `direct — relaunch` | the launching shell predates the current function. Quit the session and start a new one from a fresh shell; `exec zsh` will not fix a running session |

@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **The proxy now rides out rate limits and brief outages.** A 429, 503 or dropped connection waits and resends up to 3 times, honoring the server's `Retry-After`, and the proxy cools down for 60s and answers `503` fast when the upstream stays down.
+- **Request-scoped failures return immediately with a pointer.** A 401, 402 or context-over-window error is never retried or cooled down; the log line says whether to check the key or trim the context.
+- **Every request gets an id, a latency and a tally.** The log line reads `r123 POST /v1/messages 200 812ms attempts=2 [notes]`, and `/__health` reports uptime, per-status counts and cooldown state.
+- **The batch harness now runs through the proxy.** `run-prompts.sh` shares its env with the shell function from `lib/model-env.sh`, so repairs apply and shapes are recorded; `--direct` preserves the old raw-endpoint behavior for A/B runs.
+- **`python3 -m pytest tests/` verifies the proxy offline**, so most changes can be checked without spending a token.
+
+### Changed
+
+- **State files are written atomically and capped** at 100 learned fields and 500 shapes, and each learned field records when it was first seen and how often it has fired.
+
 ## [0.1.0] - 2026-09-19
 
 First packaged release. Previously this lived as loose files in `~/.config/claude-muse` on one machine.

@@ -49,6 +49,7 @@ Runtime state stays out of the repo. The one thing worth knowing about the profi
 ## Verify
 
 ```bash
+python3 -m pytest tests/ -q                            # offline: every rewrite rule, no tokens spent
 ~/.config/claude-muse/api-key.sh | wc -c                # a key, not an error
 curl -s 127.0.0.1:8787/__health | jq                    # version, pid, learned fields
 ~/.config/claude-muse/probe.sh http://127.0.0.1:8787    # every shape ok

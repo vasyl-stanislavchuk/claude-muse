@@ -11,6 +11,7 @@ Read [`docs/design.md`](docs/design.md) before changing where a piece lives, and
 - `bin/api-key.sh` - the `apiKeyHelper`. Unwraps the subscription key from the login keychain
 - `bin/run-prompts.sh` - non-interactive harness for comparing models on the same prompts
 - `lib/preflight.sh` - sourced on every launch. Sets the base URL, starts or restarts the proxy, probes it when the code moved
+- `lib/model-env.sh` - identity env shared by the shell function and the batch harness
 - `profile/`, `templates/` - the Claude Code profile and the two files that carry machine paths
 - `install.sh` - wires all of it into `~/.config/claude-muse` and `~/.claude-profiles/muse`
 
@@ -24,6 +25,8 @@ Read [`docs/design.md`](docs/design.md) before changing where a piece lives, and
 **Never restart the proxy while a session is using it.** `install.sh --no-agent` places files and leaves launchd alone.
 
 ## Testing a change
+
+`python3 -m pytest tests/ -q` pins every rewrite rule offline. Run it before anything that spends a token.
 
 `rewrite()` is a pure function over a JSON body, so most of the proxy is testable without spending a token:
 

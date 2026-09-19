@@ -91,6 +91,7 @@ place bin/proxy.py      "$STATE_DIR/proxy.py"
 place bin/probe.sh      "$STATE_DIR/probe.sh"
 place bin/api-key.sh    "$STATE_DIR/api-key.sh"
 place lib/preflight.sh  "$STATE_DIR/preflight.sh"
+place lib/model-env.sh  "$STATE_DIR/model-env.sh"
 place profile/statusline.sh "$PROFILE_DIR/statusline.sh"
 say "engine installed into $STATE_DIR ($MODE)"
 
