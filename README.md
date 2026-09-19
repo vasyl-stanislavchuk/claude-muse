@@ -55,7 +55,7 @@ curl -s 127.0.0.1:8787/__health | jq                    # version, pid, learned 
 claude-muse -p "Reply with exactly: ok"                 # ok
 ```
 
-`probe.sh https://api.meta.ai` runs the same shapes against the raw endpoint, which is how you see what the proxy is actually repairing. Then, in a session, search the web for something current and launch an `Explore` subagent — both used to fail and both are the point of the proxy.
+`probe.sh https://api.meta.ai` runs the same shapes against the raw endpoint, which is how you see what the proxy is actually repairing. `bin/run-prompts.sh` replays a directory of prompts through the model non-interactively, for comparing the two models on identical work — note that it sends prompt bodies to `api.meta.ai`, so settle retention terms before pointing it at a real corpus. Then, in a session, search the web for something current and launch an `Explore` subagent — both used to fail and both are the point of the proxy.
 
 ## Docs
 
