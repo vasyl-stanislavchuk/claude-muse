@@ -1,0 +1,12 @@
+# Runtime state lives in ~/.config/claude-muse, never in the repo. These patterns
+# exist because it is easy to copy one here while debugging.
+*.log
+*.log.1
+*.err
+learned.json
+shapes.json
+calibration.json
+verified
+env
+.backups/
+.DS_Store
