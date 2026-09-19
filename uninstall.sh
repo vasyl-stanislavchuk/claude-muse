@@ -18,7 +18,8 @@ launchctl bootout "gui/$(id -u)/$AGENT" >/dev/null 2>&1 || launchctl unload "$PL
 rm -f "$PLIST"
 say "launch agent removed"
 
-rm -f "$STATE_DIR"/{proxy.py,probe.sh,api-key.sh,preflight.sh}
+rm -f "$STATE_DIR"/{proxy.py,probe.sh,api-key.sh,preflight.sh,model-env.sh,run-prompts.sh}
+rm -rf "$STATE_DIR/engine"
 say "engine files removed from $STATE_DIR"
 
 if [ "$PURGE" = 1 ]; then

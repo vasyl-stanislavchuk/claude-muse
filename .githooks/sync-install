@@ -3,7 +3,7 @@
 # and post-checkout.
 #
 # Most of the install is already symlinks into this checkout, so an edit to
-# proxy.py or CLAUDE.md is live the moment you save it. What this closes is the
+# engine/ or CLAUDE.md is live the moment you save it. What this closes is the
 # gap that isn't: install.sh names each file explicitly, so a file added to the
 # repo stays unlinked until install.sh runs again. This runs it for you.
 #
@@ -27,10 +27,10 @@ out="$("$ROOT/install.sh" --no-agent 2>&1)" || {
 printf '%s\n' "$out" | grep -vE 'engine installed into|left as is|files are in place|skipping the launch agent' >&2 || true
 
 # The proxy is a running process, not a file, so say when it has fallen behind.
-disk="$(shasum -a 256 "$ROOT/bin/proxy.py" 2>/dev/null | cut -c1-12)"
+disk="$(LC_ALL=C; cat "$ROOT/proxy.py" "$ROOT"/engine/*.py 2>/dev/null | shasum -a 256 | cut -c1-12)"
 port="$(sed -n 's/^CLAUDE_MUSE_PORT=\([0-9]*\).*/\1/p' "$ROOT/lib/preflight.sh" | head -1)"
 running="$(curl -fsS -m 1 "http://127.0.0.1:${port:-8787}/__health" 2>/dev/null | jq -r '.version // empty' 2>/dev/null)"
 if [ -n "$disk" ] && [ -n "$running" ] && [ "$disk" != "$running" ]; then
-  printf 'claude-muse: proxy.py changed; the running proxy picks it up at your next claude-muse launch\n' >&2
+  printf 'claude-muse: engine changed; the running proxy picks it up at your next claude-muse launch\n' >&2
 fi
 exit 0

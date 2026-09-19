@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced by claude-muse() before it execs claude. Not executable on its own.
 #
 # Everything that might change lives here rather than in the shell function,
@@ -10,9 +11,9 @@
 #
 # What it guarantees before claude starts:
 #   1. the base URL points at the proxy, whatever the calling shell believed
-#   2. the proxy is running, and is running the current proxy.py
+#   2. the proxy is running, and is running the current engine
 #   3. the proxy answers its health endpoint
-#   4. the repairs actually work end to end — re-probed only when proxy.py changed
+#   4. the repairs actually work end to end — re-probed only when the engine changed
 #
 # Escape hatches: CLAUDE_MUSE_SKIP_PROBE=1 skips step 4, CLAUDE_MUSE_DIRECT=1
 # skips all of it and talks to the endpoint raw.
@@ -69,13 +70,17 @@ if [ -z "$health" ]; then
 fi
 
 running="$(printf '%s' "$health" | jq -r '.version // "unknown"')"
-ondisk="$(shasum -a 256 "$CLAUDE_MUSE_DIR/proxy.py" 2>/dev/null | cut -c1-12)"
+# The version covers the entry plus every engine module, concatenated in byte
+# order to match source_hash() in engine/server.py. The LC_ALL=C subshell pins
+# the glob order: an exotic LANG reordering __init__.py would restart the proxy
+# on every launch instead of only when the code moved.
+ondisk="$(LC_ALL=C; cat "$CLAUDE_MUSE_DIR/proxy.py" "$CLAUDE_MUSE_DIR"/engine/*.py 2>/dev/null | shasum -a 256 | cut -c1-12)"
 
-# The proxy holds its source in memory, so an edited proxy.py does nothing until
+# The proxy holds its source in memory, so an edited engine file does nothing until
 # it is restarted. Catching that here is the difference between a fix landing and
 # a fix appearing to land.
 if [ -n "$ondisk" ] && [ "$running" != "$ondisk" ]; then
-  _muse_say "proxy.py changed since the proxy started — restarting"
+  _muse_say "engine changed since the proxy started — restarting"
   _muse_start || { _muse_fail "proxy would not restart. Check $CLAUDE_MUSE_DIR/proxy.err"; return 1 2>/dev/null || exit 1; }
   health="$(_muse_health)"
   running="$(printf '%s' "$health" | jq -r '.version // "unknown"')"
@@ -91,11 +96,12 @@ if [ "${CLAUDE_MUSE_SKIP_PROBE:-0}" != "1" ] && [ "$(cat "$CLAUDE_MUSE_VERIFIED"
       -H "x-api-key: $_muse_key" -H 'anthropic-version: 2023-06-01' \
       -H 'content-type: application/json' -d "$1"
   }
+  _muse_model="${ANTHROPIC_MODEL:-muse-spark-1.3}"
   # A classifier-shaped call: small max_tokens, which raw returns 200-but-empty.
-  short="$(_muse_call '{"model":"muse-spark-1.3","max_tokens":200,"messages":[{"role":"user","content":"Reply with one word: ok"}]}' \
+  short="$(_muse_call '{"model":"'"$_muse_model"'","max_tokens":200,"messages":[{"role":"user","content":"Reply with one word: ok"}]}' \
     | jq -r '[.content[]?|select(.type=="text")|.text]|join("")')"
   # The exact web search shape Claude Code sends, max_uses and all.
-  search="$(_muse_call '{"model":"muse-spark-1.3","max_tokens":4096,"tool_choice":{"type":"tool","name":"web_search"},"messages":[{"role":"user","content":"Perform a web search for the query: what day is it today"}],"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":8}]}' \
+  search="$(_muse_call '{"model":"'"$_muse_model"'","max_tokens":4096,"tool_choice":{"type":"tool","name":"web_search"},"messages":[{"role":"user","content":"Perform a web search for the query: what day is it today"}],"tools":[{"type":"web_search_20250305","name":"web_search","max_uses":8}]}' \
     | jq -r '.error.message // "ok"')"
 
   if [ -n "$short" ] && [ "$search" = "ok" ]; then
@@ -106,7 +112,7 @@ if [ "${CLAUDE_MUSE_SKIP_PROBE:-0}" != "1" ] && [ "$(cat "$CLAUDE_MUSE_VERIFIED"
     [ "$search" != "ok" ] && _muse_warn "web search still rejected: $search"
     _muse_warn "continuing anyway. $CLAUDE_MUSE_DIR/proxy.log has the detail."
   fi
-  unset _muse_key
+  unset _muse_key _muse_model
 fi
 
 learned="$(printf '%s' "$health" | jq -r '.learned|length' 2>/dev/null)"

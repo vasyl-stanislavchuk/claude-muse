@@ -9,6 +9,8 @@ calibration.json
 verified
 env
 .backups/
+logs/
 .DS_Store
 __pycache__/
 *.pyc
+.pytest_cache/

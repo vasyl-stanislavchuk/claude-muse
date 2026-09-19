@@ -1,0 +1,12 @@
+# Tool config only. This repo is not a package: no [project] or
+# [build-system] belongs here, and nothing here is imported by the engine.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

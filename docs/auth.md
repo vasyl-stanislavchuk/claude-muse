@@ -27,4 +27,3 @@ The keychain item's location is configurable for the day it moves: `CLAUDE_MUSE_
 - The muse CLI's own config is separate: `~/.config/muse/{auth.json,settings.json}`. `auth.json` holds no secret - it records `"storage": "keychain"` and points at the item above.
 - The device flow's constants are readable in the launcher at `~/.local/bin/muse`: `auth.meta.com`, public client id `1031625952748946`, no client secret.
 - `~/.config/claude-muse/env` held the original pay-as-you-go key and is no longer read by anything. Safe to delete.
-

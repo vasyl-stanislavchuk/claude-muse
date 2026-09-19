@@ -17,7 +17,7 @@ set -uo pipefail
 
 BASE="${1:-https://api.meta.ai}"
 KEY="$(~/.config/claude-muse/api-key.sh)"
-M='"model":"muse-spark-1.3"'
+M='"model":"'"${ANTHROPIC_MODEL:-muse-spark-1.3}"'"'
 Q='"messages":[{"role":"user","content":"Answer in one word: what colour is a ripe banana?"}]'
 R='"messages":[{"role":"user","content":"A cube is painted red on all faces, then cut into 3x3x3 unit cubes. How many unit cubes have exactly two painted faces? Show your reasoning, then give the number."}]'
 S='"messages":[{"role":"user","content":"Perform a web search for the query: claude code latest version"}]'

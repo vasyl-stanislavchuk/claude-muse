@@ -15,9 +15,14 @@
 # before pointing this at a real corpus.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SRC="${BASH_SOURCE[0]}"
+[ -L "$SRC" ] && SRC="$(readlink "$SRC")"
+SCRIPT_DIR="$(cd "$(dirname "$SRC")" && pwd)"
+# Linked installs resolve through to the repo; --copy installs sit flat.
+LIB_DIR="$SCRIPT_DIR/../lib"
+[ -f "$LIB_DIR/model-env.sh" ] || LIB_DIR="$SCRIPT_DIR"
 # shellcheck source=../lib/model-env.sh
-source "$SCRIPT_DIR/../lib/model-env.sh"
+source "$LIB_DIR/model-env.sh"
 
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
@@ -33,10 +38,11 @@ if [ "$DIRECT" = 1 ]; then
   echo "run-prompts: --direct, bypassing the proxy (repairs off, shapes unrecorded)" >&2
   export ANTHROPIC_BASE_URL="https://api.meta.ai"
 else
-  # Must match CLAUDE_MUSE_PORT in lib/preflight.sh, which owns the port.
-  export ANTHROPIC_BASE_URL="http://127.0.0.1:8787"
+  # The port is owned by preflight.sh; parse it the way install.sh does.
+  port="$(sed -n 's/^CLAUDE_MUSE_PORT=\([0-9]*\)/\1/p' "$LIB_DIR/preflight.sh" 2>/dev/null | head -1)"
+  export ANTHROPIC_BASE_URL="http://127.0.0.1:${port:-8787}"
   curl -fsS -m 2 "$ANTHROPIC_BASE_URL/__health" >/dev/null 2>&1 || {
-    echo "run-prompts: proxy is down on :8787 — launch claude-muse once, or check ~/.config/claude-muse/proxy.err" >&2
+    echo "run-prompts: proxy is down on :${port:-8787} — launch claude-muse once, or check ~/.config/claude-muse/proxy.err" >&2
     exit 1
   }
 fi

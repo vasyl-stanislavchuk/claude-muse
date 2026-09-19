@@ -1,0 +1,60 @@
+# Free gates only: the offline suite, shell syntax, lint, and the commit
+# suite. Nothing here spends a token or touches a keychain.
+#
+# Deliberately not run: install.sh --check (macOS-only, reds every Linux
+# run), probe.sh and run-prompts.sh (both spend real money and need a
+# keychain that must never exist on a runner).
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    # The suite takes seconds; anything longer is a hung runner, not a slow test.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # Matches the launch agent's /usr/bin/python3. A newer Python would
+          # bless syntax the production interpreter rejects.
+          python-version: "3.9"
+      - run: pip install pytest pyyaml
+      - run: python -m pytest -q --junitxml=pytest-report.xml
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: pytest-report
+          path: pytest-report.xml
+          retention-days: 7
+
+  shell:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -q shellcheck
+        # Apt mirrors stall; cap the download so a bad mirror fails fast.
+        timeout-minutes: 5
+      - run: make shell
+
+  ruff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install ruff
+      - run: ruff check . && ruff format --check .
+
+  pre-commit:
+    runs-on: ubuntu-latest
+    # Hook environments download on first run, so this job gets the long timeout.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files --show-diff-on-failure

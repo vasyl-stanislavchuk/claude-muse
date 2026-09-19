@@ -17,7 +17,7 @@ So the function holds only what rarely changes, and `preflight.sh` holds everyth
 
 What survives a stale function is the status line, which Claude Code evaluates live from the session's own environment. `direct — relaunch` there is the tell, and the fix is always the same: quit and relaunch from a new shell. `exec zsh` does not rescue a session already running, because it inherited its environment at launch.
 
-**On every launch, free and instant:** base URL set, proxy confirmed up via `GET /__health`, and the running proxy's source hash compared against `proxy.py` on disk - an edited proxy does nothing until it restarts, which is the difference between a fix landing and a fix appearing to land.
+**On every launch, free and instant:** base URL set, proxy confirmed up via `GET /__health`, and the running proxy's source hash compared against the engine on disk - an edited proxy does nothing until it restarts, which is the difference between a fix landing and a fix appearing to land.
 
 **Only when that version changes:** two real calls, one per failure class - a short `max_tokens` request that must come back with text, and the exact web search shape Claude Code sends, `max_uses` and all, which must come back `200`. Verified once, recorded, and skipped until the code moves again. A normal launch costs nothing and takes about a tenth of a second; the first launch after an edit takes around half a minute and proves the edit works.
 
@@ -75,7 +75,6 @@ It exists because most questions about this setup are settled by looking at the 
 
 ## Repair rules
 
-`rewrite-rules.yaml` is the repair policy as data: which shapes the proxy rewrites, in which order, for which models. Editing it changes behavior without touching `proxy.py`, which matters because the file's hash is what preflight watches - a policy tweak costs no re-probe, while a code edit costs two paid calls.
+`rewrite-rules.yaml` is the repair policy as data: which shapes the proxy rewrites, in which order, for which models. Editing it changes behavior without touching `engine/`, which matters because the engine hash is what preflight watches - a policy tweak costs no re-probe, while a code edit costs two paid calls.
 
 The shape of it - declarative match-and-mutate rules with model wildcards - is borrowed from CLIProxyAPI's `payload` rules (router-for-me/CLIProxyAPI, MIT), cut down to six ops. Per-model reasoning values (the `max_tokens` floor, the thinking budget) live in the same file under `models:`, read by one fixed pipeline rather than by rules, because those normalizations only make sense together. What the proxy does when the file is missing, malformed, or pyyaml is absent is always the same: fall back to the baked-in copy and say so in `proxy.log`. A typo in policy degrades to no repair, never to a failed request.
-

@@ -15,13 +15,13 @@ AGENT="${CLAUDE_MUSE_AGENT:-co.medallion.claude-muse-proxy}"
 PLIST="$HOME/Library/LaunchAgents/$AGENT.plist"
 PYTHON="${CLAUDE_MUSE_PYTHON:-/usr/bin/python3}"
 
-MODE=link
+MODE="link"
 CHECK_ONLY=0
 WITH_AGENT=1
 for arg in "$@"; do
   case "$arg" in
     --copy)  MODE=copy ;;
-    --link)  MODE=link ;;
+    --link)  MODE="link" ;;
     --check) CHECK_ONLY=1 ;;
     --no-agent) WITH_AGENT=0 ;;
     -h|--help)
@@ -73,6 +73,17 @@ place() {     # place() <repo-relative source> <destination>
   if [ "$MODE" = link ]; then ln -s "$src" "$dest"; else cp -p "$src" "$dest"; fi
 }
 
+place_dir() {  # place_dir() <repo-relative source dir> <destination>
+  local src="$REPO/$1" dest="$2"
+  [ -d "$src" ] || fail "missing from repo: $1"
+  if [ -L "$dest" ] && [ "$(readlink "$dest")" = "$src" ] && [ "$MODE" = link ]; then
+    return 0                       # already correct, leave it alone
+  fi
+  preserve "$dest"
+  rm -rf "$dest"
+  if [ "$MODE" = link ]; then ln -s "$src" "$dest"; else cp -Rp "$src" "$dest"; fi
+}
+
 render() {    # render() <template> <destination>; never clobbers silently
   local out
   out="$(sed -e "s|__STATE_DIR__|$STATE_DIR|g" \
@@ -87,11 +98,13 @@ render() {    # render() <template> <destination>; never clobbers silently
 
 mkdir -p "$STATE_DIR" "$PROFILE_DIR" "$HOME/Library/LaunchAgents"
 
-place bin/proxy.py      "$STATE_DIR/proxy.py"
-place bin/probe.sh      "$STATE_DIR/probe.sh"
-place bin/api-key.sh    "$STATE_DIR/api-key.sh"
-place lib/preflight.sh  "$STATE_DIR/preflight.sh"
-place lib/model-env.sh  "$STATE_DIR/model-env.sh"
+place proxy.py              "$STATE_DIR/proxy.py"
+place_dir engine            "$STATE_DIR/engine"
+place bin/probe.sh          "$STATE_DIR/probe.sh"
+place bin/api-key.sh        "$STATE_DIR/api-key.sh"
+place bin/run-prompts.sh    "$STATE_DIR/run-prompts.sh"
+place lib/preflight.sh      "$STATE_DIR/preflight.sh"
+place lib/model-env.sh      "$STATE_DIR/model-env.sh"
 place profile/statusline.sh "$PROFILE_DIR/statusline.sh"
 mkdir -p "$PROFILE_DIR/hooks"
 place profile/CLAUDE.md          "$PROFILE_DIR/CLAUDE.md"
@@ -113,6 +126,8 @@ fi
 "$PYTHON" -c 'import yaml' 2>/dev/null \
   || "$PYTHON" -m pip install --user --quiet --disable-pip-version-check pyyaml >/dev/null 2>&1 \
   || warn "pyyaml is missing for $PYTHON — the proxy uses baked-in rules until it is installed"
+command -v pre-commit >/dev/null 2>&1 \
+  || say "pre-commit is missing — commits skip the lint suite until it is installed (pipx install pre-commit)"
 
 # settings.json carries the user's own permissions.allow list, so it is written
 # once and thereafter left alone. A settings model pin would outrank

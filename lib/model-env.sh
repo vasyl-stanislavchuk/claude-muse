@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # Identity env shared by the interactive function and the batch harness.
 # Sourced, never executed. POSIX sh only: zsh and bash both read this file.
 #

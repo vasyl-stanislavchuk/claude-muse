@@ -1,38 +1,155 @@
-"""Shared fixtures for the offline proxy suite.
+"""Shared fixtures for the offline engine suite.
 
-The module under test is loaded the same way CLAUDE.md's recipe loads it:
-straight from bin/proxy.py with importlib, no install step. Importing it reads
-the real learned.json and shapes.json, which is safe (read-only, sane defaults
-when they are missing), and every fixture below repoints the writable paths at
+The engine is imported as a package straight from the repo root: no install
+step, sys.path pointed at the checkout. Importing it reads the real
+learned.json and shapes.json, which is safe (read-only, sane defaults when
+they are missing), and every fixture below repoints the writable paths at
 tmp_path so a test run never touches ~/.config.
 """
 
-import importlib.util
 import copy
+import http
 import io
+import json
 import sys
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-SPEC = importlib.util.spec_from_file_location("proxy_under_test", REPO / "bin" / "proxy.py")
+sys.path.insert(0, str(REPO))
+
+from engine import census as census_mod  # noqa: E402
+from engine import policy as policy_mod  # noqa: E402
+from engine import reasoning as reasoning_mod  # noqa: E402
+from engine import relay as relay_mod  # noqa: E402
+from engine import rewrite as rewrite_mod  # noqa: E402
+from engine import server as server_mod  # noqa: E402
+from engine import state as state_mod  # noqa: E402
+
+
+class _Facade:
+    """The engine as the tests see it: one object, canonical homes behind it.
+
+    Reads and monkeypatch writes both forward to the module that owns each
+    name, so the suite keeps working on attribute paths (clean_state._learned)
+    while production code imports modules directly. A name missing here fails
+    loud with AttributeError, which is how a test touching something new
+    announces the new dependency.
+    """
+
+    def __init__(self):
+        self.__dict__["_homes"] = {
+            # state: process state, persistence, observability
+            "LOG": state_mod,
+            "LEARNED": state_mod,
+            "CALIBRATION": state_mod,
+            "_counters": state_mod,
+            "_counters_lock": state_mod,
+            "_request_line": state_mod,
+            "_count": state_mod,
+            "_usage_totals": state_mod,
+            "_ratio_samples": state_mod,
+            "_calibration": state_mod,
+            "load_calibration": state_mod,
+            "estimate_tokens": state_mod,
+            "_learned": state_mod,
+            "load_learned": state_mod,
+            "remember": state_mod,
+            "SEEDED_DROPS": state_mod,
+            "LEARNED_MAX_FIELDS": state_mod,
+            "_warned_owned": state_mod,
+            "_atomic_write_json": state_mod,
+            "Calibration": state_mod,
+            "Counters": state_mod,
+            "LearnedEntry": state_mod,
+            # policy: repair rules and reasoning profiles
+            "RULES": policy_mod,
+            "BAKED_IN_RULES": policy_mod,
+            "BAKED_IN_PROFILES": policy_mod,
+            "MODEL_DEFAULTS": policy_mod,
+            "_RULES": policy_mod,
+            "_PROFILES": policy_mod,
+            "_policy_mtimes": policy_mod,
+            "load_rules": policy_mod,
+            "load_profiles": policy_mod,
+            "_maybe_reload_policy": policy_mod,
+            "Rule": policy_mod,
+            "Profile": policy_mod,
+            # rewrite: the static rule engine
+            "rewrite": rewrite_mod,
+            "apply_rule": rewrite_mod,
+            "offending_fields": rewrite_mod,
+            "drop_field": rewrite_mod,
+            "_warned_ops": rewrite_mod,
+            # reasoning: the thinking/max_tokens pipeline
+            "normalize_reasoning": reasoning_mod,
+            "_profile_for": reasoning_mod,
+            "MIN_MAX_TOKENS": reasoning_mod,
+            "_warned_models": reasoning_mod,
+            # relay: upstream traffic, transient policy, stream helpers
+            "_sleep": relay_mod,
+            "MAX_RETRY_INTERVAL": relay_mod,
+            "TRANSIENT_COOLDOWN": relay_mod,
+            "STREAM_TIMEOUT": relay_mod,
+            "BOOTSTRAP_TIMEOUT": relay_mod,
+            "_cooldown_until": relay_mod,
+            "transient_backoff": relay_mod,
+            "parse_retry_after": relay_mod,
+            "_take_transient_wait": relay_mod,
+            "_is_stop": relay_mod,
+            "_stop_hint": relay_mod,
+            "_read_sse_prefix": relay_mod,
+            "_sse_prefix_error": relay_mod,
+            "_deadline_hit": relay_mod,
+            "_fold_usage_holder": relay_mod,
+            "_note_usage": relay_mod,
+            "_in_cooldown": relay_mod,
+            "_enter_cooldown": relay_mod,
+            "wants_web_search": relay_mod,
+            "title_from_url": relay_mod,
+            "SearchSources": relay_mod,
+            # census: request shape observations
+            "SHAPES": census_mod,
+            "_shapes": census_mod,
+            "SHAPES_MAX": census_mod,
+            "census": census_mod,
+            "signature": census_mod,
+            # server: the HTTP layer
+            "Handler": server_mod,
+        }
+
+    def __getattr__(self, name):
+        if name == "http":  # stdlib, reached through the module as before
+            return http
+        try:
+            return getattr(self._homes[name], name)
+        except KeyError:
+            raise AttributeError(f"engine facade has no attribute {name!r}") from None
+
+    def __setattr__(self, name, value):
+        try:
+            setattr(self._homes[name], name, value)
+        except KeyError:
+            raise AttributeError(f"engine facade has no attribute {name!r}") from None
+
+
+def body(payload):
+    return json.dumps(payload).encode()
 
 
 @pytest.fixture(scope="session")
 def proxy():
-    module = importlib.util.module_from_spec(SPEC)
-    sys.modules[SPEC.name] = module
-    SPEC.loader.exec_module(module)
-    return module
+    return _Facade()
 
 
 @pytest.fixture
 def clean_state(proxy, tmp_path, monkeypatch):
     """Known learned/shapes sets and throwaway state files for one test."""
     monkeypatch.setattr(
-        proxy, "_learned",
-        {s: {"first_seen": None, "hits": 0} for s in proxy.SEEDED_DROPS},
+        proxy,
+        "_learned",
+        {s: proxy.LearnedEntry() for s in proxy.SEEDED_DROPS},
     )
     monkeypatch.setattr(proxy, "_shapes", {})
     log = tmp_path / "proxy.log"
@@ -41,18 +158,18 @@ def clean_state(proxy, tmp_path, monkeypatch):
     monkeypatch.setattr(proxy, "SHAPES", str(tmp_path / "shapes.json"))
     monkeypatch.setattr(proxy, "RULES", str(tmp_path / "rewrite-rules.yaml"))
     monkeypatch.setattr(proxy, "CALIBRATION", str(tmp_path / "calibration.json"))
-    monkeypatch.setattr(proxy, "_calibration", {"chars": 0, "tokens": 0, "samples": 0})
+    monkeypatch.setattr(proxy, "_calibration", proxy.Calibration())
     monkeypatch.setattr(proxy, "_policy_mtimes", {})
     with proxy._counters_lock:
-        proxy._counters["requests_total"] = 0
-        for key in proxy._counters["by_status"]:
-            proxy._counters["by_status"][key] = 0
-        proxy._counters["transient_retries_total"] = 0
-        proxy._counters["learned_hits_total"] = 0
-        proxy._counters["client_hangups_total"] = 0
-        proxy._counters["empty_content_200s"] = 0
-        proxy._counters["no_reasoning_requests_total"] = 0
-        proxy._counters["stop_reasons"].clear()
+        proxy._counters.requests_total = 0
+        for key in proxy._counters.by_status:
+            proxy._counters.by_status[key] = 0
+        proxy._counters.transient_retries_total = 0
+        proxy._counters.learned_hits_total = 0
+        proxy._counters.client_hangups_total = 0
+        proxy._counters.empty_content_200s = 0
+        proxy._counters.no_reasoning_requests_total = 0
+        proxy._counters.stop_reasons.clear()
         proxy._usage_totals["input_tokens"] = 0
         proxy._usage_totals["output_tokens"] = 0
         proxy._ratio_samples.clear()

@@ -22,7 +22,7 @@ The Meta Model API serves an **Anthropic-compatible surface** at `https://api.me
 
 The failures are not the kind you can read. A rejected `max_uses` takes out web search. A rejected `safeguards` takes out the auto-mode classifier, which surfaces as `muse-spark-1.3 is temporarily unavailable, so auto mode cannot determine the safety of Agent` - so every subagent launch fails, and the error blames the model. A classifier-sized `max_tokens` returns `200` with empty content, because Spark spends the whole budget thinking before it emits anything.
 
-`bin/proxy.py` repairs those shapes on the way through and passes everything else byte for byte. It never reads the credential. When it meets a rejection it has no rule for, it reads the field name out of the 400, records it, strips it and retries - so a new gap costs one slow request instead of a debugging session. [`docs/api-subset.md`](docs/api-subset.md) has every measured row.
+`proxy.py` (a thin entry over `engine/`) repairs those shapes on the way through and passes everything else byte for byte. It never reads the credential. When it meets a rejection it has no rule for, it reads the field name out of the 400, records it, strips it and retries - so a new gap costs one slow request instead of a debugging session. [`docs/api-subset.md`](docs/api-subset.md) has every measured row.
 
 ## Install
 
@@ -81,4 +81,4 @@ claude-muse -p "Reply with exactly: ok"                 # ok
 
 This is internal tooling, not a supported product. It tracks two moving targets - Claude Code releases and the endpoint's subset - and the learn-and-retry mechanism exists precisely because the second one is not documented anywhere.
 
-Nothing here is Meta-specific except `bin/api-key.sh`, the model ids in the shell function, and the defaults at the top of `bin/proxy.py`. Pointing it at a different Anthropic-compatible endpoint is a matter of changing those.
+Nothing here is Meta-specific except `bin/api-key.sh`, the model ids in the shell function, and the defaults at the top of `engine/server.py`. Pointing it at a different Anthropic-compatible endpoint is a matter of changing those.

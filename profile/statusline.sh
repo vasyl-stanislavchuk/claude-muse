@@ -12,12 +12,12 @@
 #     v
 #   preflight.sh             ~/.config/claude-muse/. Read fresh every launch.
 #     |                      Sets ANTHROPIC_BASE_URL to the proxy, starts the
-#     |                      proxy if it is down, restarts it if proxy.py changed
+#     |                      proxy if it is down, restarts it if the engine changed
 #     v                      since it started, and probes the repairs after a change.
 #   claude                   talks to 127.0.0.1:8787, not api.meta.ai.
 #     |
 #     v
-#   proxy.py                 repairs the request: strips web_search fields the
+#   engine/                 repairs the request: strips web_search fields the
 #     |                      endpoint rejects, rewrites a named tool_choice to auto, drops
 #     |                      thinking:{type:disabled}, floors max_tokens at 4096,
 #     |                      and learns any other field a 400 names. On the way
@@ -141,10 +141,11 @@ fi
 # that launched claude, so it is the truth about this session rather than about
 # what is currently on disk.
 proxy_display=""
+port="${CLAUDE_MUSE_PORT:-8787}"  # preflight.sh owns the port; this only falls back
 if [ -n "$ANTHROPIC_BASE_URL" ]; then
     case "$ANTHROPIC_BASE_URL" in
-        *127.0.0.1:8787*|*localhost:8787*)
-            if curl -fsS -m 1 http://127.0.0.1:8787/__health >/dev/null 2>&1; then
+        *127.0.0.1:$port*|*localhost:$port*)
+            if curl -fsS -m 1 "http://127.0.0.1:$port/__health" >/dev/null 2>&1; then
                 proxy_display="proxied"
                 proxy_colour="\033[32m"
             else
@@ -162,7 +163,6 @@ fi
 
 # Colors
 magenta="\033[35m"
-yellow="\033[33m"
 green="\033[32m"
 cyan="\033[36m"
 reset="\033[0m"

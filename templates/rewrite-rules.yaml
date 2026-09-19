@@ -1,4 +1,4 @@
-# Static repair rules for bin/proxy.py. Each rule names the models it applies to
+# Static repair rules for the engine (engine/policy.py reads this file). Each rule names the models it applies to
 # (fnmatch globs against the request's model; "*" matches everything including a
 # missing model, and is the default when `models` is absent). Scope a rule down
 # to one model, e.g. ["muse-spark-*"], the day a second model needs different

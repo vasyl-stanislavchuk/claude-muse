@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Commit gate. Delegates to pre-commit when it is installed, and stays silent
+# when it is not: these hooks must never fail a commit on a machine without it.
+#
+# Never run `pre-commit install` here: it would move core.hooksPath off
+# .githooks/ and silently disable the install re-link. This shim is the install.
+set -uo pipefail
+
+command -v pre-commit >/dev/null 2>&1 || exit 0
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT" || exit 0
+# hook-impl needs its own directory to look for chained *.legacy hooks in.
+# The stock installer passes .git/hooks; ours is the directory of this shim.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+exec pre-commit hook-impl --config=.pre-commit-config.yaml --hook-type=pre-commit \
+  --hook-dir="$HERE" -- "$@"

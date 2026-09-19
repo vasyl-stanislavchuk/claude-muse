@@ -22,7 +22,7 @@ Those rows are why **subagents never launched**. Claude Code's auto mode asks a 
 
 **Correction.** Earlier versions of this file said the classifier sends `thinking: {type:"disabled"}`. It does not. The census records its shape as `keys=max_tokens,messages,metadata,model,stop_sequences,system` with `max_tokens=2112` and no `thinking` key at all; the only `thinking=disabled` row in `shapes.json` is `probe.sh` sending one. The classifier carries **no reasoning directive**, which matters because this endpoint has no way to switch reasoning off - see below.
 
-`proxy.py` repairs all of it: it strips the unsupported `web_search` fields, rewrites a **named** `tool_choice` to `auto`, translates `thinking: {type:"disabled"}` into the cheapest tier the endpoint has, raises `max_tokens` to a floor of 4096, and clamps `budget_tokens` below it.
+The engine repairs all of it: it strips the unsupported `web_search` fields, rewrites a **named** `tool_choice` to `auto`, translates `thinking: {type:"disabled"}` into the cheapest tier the endpoint has, raises `max_tokens` to a floor of 4096, and clamps `budget_tokens` below it.
 
 Only the named form is rewritten. `any` and `none` pass through, because the only rejection ever measured is the named one, and forcing `none` to `auto` would turn "do not call tools" into "call tools if you like" - the proxy granting a permission rather than repairing a shape. If `any` or `none` does turn out to be rejected, the retry path drops the field instead of replacing it: absence asserts nothing, where `auto` asserts something.
 
@@ -79,7 +79,7 @@ Two things this is *not*. It is not the status line's one-turn lag, which is a d
 | auto mode refuses an ordinary command | a genuine verdict from `muse-spark-1.3`, which is the fallback classifier here. Add a `Bash(...)` allow rule for it, or leave auto mode with `Shift+Tab` |
 | status line says `direct — relaunch` | the launching shell predates the current function. Quit the session and start a new one from a fresh shell; `exec zsh` will not fix a running session |
 | status line says `proxy down` | the session is pointed at the proxy but nothing answers. `launchctl kickstart -k gui/$(id -u)/co.medallion.claude-muse-proxy` |
-| a proxy.py edit seems to do nothing | the proxy holds its source in memory. Preflight restarts it on the next launch; mid-session, kickstart it |
+| an engine edit seems to do nothing | the proxy holds its source in memory. Preflight restarts it on the next launch; mid-session, kickstart it |
 | `400 ... is not supported` reaches the session | a shape the proxy could not repair by name. Read `proxy.log` for the exact field and add an explicit rule |
 | a short reply comes back empty | the `max_tokens` floor is not being applied — the session is talking to `api.meta.ai` directly rather than through the proxy |
 | subagents blocked, `auto mode cannot determine the safety of` | the classifier timed out rather than refused. It carries no reasoning directive, so it pays the endpoint's default tier; `grep no-reasoning proxy.log` shows how slow. The fix is a `permissions.allow` entry, not a proxy change |
@@ -94,4 +94,3 @@ curl -s -o /dev/null -w '%{http_code}\n' https://api.meta.ai/v1/messages \
   -H 'anthropic-version: 2023-06-01' -H 'content-type: application/json' \
   -d '{"model":"muse-spark-1.3","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}'
 ```
-

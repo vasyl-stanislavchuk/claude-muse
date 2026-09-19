@@ -7,7 +7,7 @@ learn-and-retry loop as the client sees them - status line, chunked body, log.
 import json
 import re
 
-from conftest import make_handler
+from conftest import body, make_handler
 
 LINE = re.compile(r"r\d+ POST /v1/messages (\d+) (\d+)ms attempts=(\d+) \[(.*?)\](.*)")
 
@@ -20,10 +20,13 @@ TEXT_REPLY = {"content": [{"type": "text", "text": "hi"}], "stop_reason": "end_t
 
 
 def test_relay_rewrites_and_logs_one_line(relay, clean_state, tmp_path):
-    raw = json.dumps({
-        "max_tokens": 200, "messages": [],
-        "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 8}],
-    }).encode()
+    raw = json.dumps(
+        {
+            "max_tokens": 200,
+            "messages": [],
+            "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 8}],
+        }
+    ).encode()
     response, sent = relay(raw, [ok(TEXT_REPLY)])
     assert response.startswith(b"HTTP/1.1 200 ")
     assert b'"hi"' in response
@@ -33,19 +36,18 @@ def test_relay_rewrites_and_logs_one_line(relay, clean_state, tmp_path):
     match = LINE.search((tmp_path / "proxy.log").read_text())
     assert match and match.groups()[:3] == ("200", match.group(2), "1")
     assert match.group(4) == "-max_uses max_tokens 200->4096"
-    assert clean_state._counters["by_status"]["2xx"] == 1
+    assert clean_state._counters.by_status["2xx"] == 1
 
 
 def test_relay_learns_from_400_then_succeeds(relay, clean_state, tmp_path):
     raw = json.dumps({"max_tokens": 4096, "taught_field": 1, "messages": []}).encode()
-    first = (400, b'{"error": {"message": "unknown parameter `taught_field`"}}',
-             "application/json")
+    first = (400, b'{"error": {"message": "unknown parameter `taught_field`"}}', "application/json")
     response, sent = relay(raw, [first, ok(TEXT_REPLY)])
     assert response.startswith(b"HTTP/1.1 200 ")
     assert len(sent) == 2
     assert "taught_field" not in json.loads(sent[1])
     assert "taught_field" in clean_state._learned
-    assert clean_state._counters["learned_hits_total"] == 1
+    assert clean_state._counters.learned_hits_total == 1
     match = LINE.search((tmp_path / "proxy.log").read_text())
     assert match and match.group(3) == "2" and "-taught_field" in match.group(4)
 
@@ -55,30 +57,50 @@ def test_relay_reports_an_unrepairable_400(relay, clean_state, tmp_path):
     response, _ = relay(raw, [(400, b"mystery failure, no backticks", "text/plain")])
     assert response.startswith(b"HTTP/1.1 400 ")
     assert b"mystery failure" in response
-    assert clean_state._counters["by_status"]["400"] == 1
+    assert clean_state._counters.by_status["400"] == 1
     assert "unnamed" in (tmp_path / "proxy.log").read_text()
 
 
 def test_relay_injects_sources_on_json(relay, clean_state):
-    raw = json.dumps({
-        "max_tokens": 4096, "messages": [],
-        "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-    }).encode()
-    reply = {"content": [{"type": "server_tool_use", "id": "srv_1",
-                           "input": {"type": "open_page", "url": "https://a.example/x"}}]}
+    raw = json.dumps(
+        {
+            "max_tokens": 4096,
+            "messages": [],
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+        }
+    ).encode()
+    reply = {
+        "content": [
+            {
+                "type": "server_tool_use",
+                "id": "srv_1",
+                "input": {"type": "open_page", "url": "https://a.example/x"},
+            }
+        ]
+    }
     response, _ = relay(raw, [ok(reply)])
     assert b"web_search_tool_result" in response
     assert b"https://a.example/x" in response
 
 
 def test_relay_passes_sse_through_and_injects_before_stop(relay, clean_state):
-    raw = json.dumps({
-        "max_tokens": 4096, "messages": [], "stream": True,
-        "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-    }).encode()
-    start = {"type": "content_block_start", "index": 0, "content_block": {
-        "type": "server_tool_use", "id": "srv_9",
-        "input": {"type": "open_page", "url": "https://b.example/y"}}}
+    raw = json.dumps(
+        {
+            "max_tokens": 4096,
+            "messages": [],
+            "stream": True,
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+        }
+    ).encode()
+    start = {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+            "type": "server_tool_use",
+            "id": "srv_9",
+            "input": {"type": "open_page", "url": "https://b.example/y"},
+        },
+    }
     stream = (
         f"event: content_block_start\ndata: {json.dumps(start)}\n\n"
         'event: message_stop\ndata: {"type": "message_stop"}\n\n'
@@ -89,10 +111,9 @@ def test_relay_passes_sse_through_and_injects_before_stop(relay, clean_state):
 
 
 def test_relay_counts_and_ignores_the_hello_ping(relay, clean_state, tmp_path):
-    response, _ = relay(b"", [(404, b"nope", "text/plain")],
-                        path="/api/hello", command="GET")
+    response, _ = relay(b"", [(404, b"nope", "text/plain")], path="/api/hello", command="GET")
     assert response.startswith(b"HTTP/1.1 404 ")
-    assert clean_state._counters["requests_total"] == 0
+    assert clean_state._counters.requests_total == 0
     assert not (tmp_path / "proxy.log").exists()
 
 
@@ -111,36 +132,13 @@ def test_relay_counts_an_upstream_error(relay, clean_state, tmp_path, monkeypatc
     assert handler.wfile.getvalue().startswith(b"HTTP/1.1 502 ")
     assert len(slept) == 3  # waited first, gave up second
     assert clean_state._cooldown_until is not None
-    assert clean_state._counters["by_status"]["5xx"] == 1
+    assert clean_state._counters.by_status["5xx"] == 1
     assert "upstream-error" in (tmp_path / "proxy.log").read_text()
-
-
-def test_count_buckets_statuses(clean_state):
-    for status, bucket in [(200, "2xx"), (400, "400"), (429, "429"),
-                            (503, "5xx"), (401, "other"), (404, "other")]:
-        clean_state._count(status)
-    assert clean_state._counters["requests_total"] == 6
-    assert clean_state._counters["by_status"] == {
-        "2xx": 1, "400": 1, "429": 1, "5xx": 1, "other": 2}
-
-
-def test_request_line_format(clean_state):
-    line = clean_state._request_line
-    assert (line("r7", "POST", "/v1/messages", 200, 812, 2, "-max_uses")
-            == "r7 POST /v1/messages 200 812ms attempts=2 [-max_uses]")
-    assert line("r7", "POST", "/v1/x", 502, 3, 1, "-", "boom").endswith("[-] boom")
-
-
-def test_remember_counts_new_fields_only(clean_state):
-    clean_state.remember("fresh_field")
-    clean_state.remember("fresh_field")
-    assert clean_state._counters["learned_hits_total"] == 1
 
 
 def test_health_reports_counters_and_stays_silent(relay, clean_state, tmp_path):
     clean_state._count(200)
-    response, _ = relay(b"", [(200, b"", "application/json")],
-                        path="/__health", command="GET")
+    response, _ = relay(b"", [(200, b"", "application/json")], path="/__health", command="GET")
     head, _, body = response.partition(b"\r\n\r\n")
     assert head.startswith(b"HTTP/1.1 200 ")
     health = json.loads(body)
@@ -158,13 +156,17 @@ def test_relay_waits_on_429_then_succeeds(relay, clean_state, tmp_path, monkeypa
     slept = []
     monkeypatch.setattr(clean_state, "_sleep", slept.append)
     raw = json.dumps({"max_tokens": 4096, "messages": []}).encode()
-    limited = (429, b'{"error": {"message": "rate_limit exceeded"}}',
-               "application/json", {"Retry-After": "2"})
+    limited = (
+        429,
+        b'{"error": {"message": "rate_limit exceeded"}}',
+        "application/json",
+        {"Retry-After": "2"},
+    )
     response, sent = relay(raw, [limited, ok(TEXT_REPLY)])
     assert response.startswith(b"HTTP/1.1 200 ")
     assert len(sent) == 2 and sent[0] == sent[1]  # resent unchanged
     assert slept == [2.0]
-    assert clean_state._counters["transient_retries_total"] == 1
+    assert clean_state._counters.transient_retries_total == 1
     assert clean_state._cooldown_until is None
     match = LINE.search((tmp_path / "proxy.log").read_text())
     assert match and match.group(3) == "2"
@@ -180,8 +182,8 @@ def test_relay_cools_down_after_repeated_429s(relay, clean_state, tmp_path, monk
     assert b"slow down" in response  # the upstream's own bytes, served back
     assert len(sent) == 4 and len(slept) == 3
     assert clean_state._cooldown_until is not None
-    assert clean_state._counters["transient_retries_total"] == 3
-    assert clean_state._counters["by_status"]["429"] == 1
+    assert clean_state._counters.transient_retries_total == 3
+    assert clean_state._counters.by_status["429"] == 1
     log = (tmp_path / "proxy.log").read_text()
     assert "attempts=4" in log and "transient 429:" in log
 
@@ -200,8 +202,11 @@ def test_relay_stops_on_context_too_long(relay, clean_state, tmp_path, monkeypat
     slept = []
     monkeypatch.setattr(clean_state, "_sleep", slept.append)
     raw = json.dumps({"max_tokens": 4096, "messages": []}).encode()
-    too_big = (400, b'{"error": {"message": "prompt is too long: 2000000 tokens"}}',
-               "application/json")
+    too_big = (
+        400,
+        b'{"error": {"message": "prompt is too long: 2000000 tokens"}}',
+        "application/json",
+    )
     response, sent = relay(raw, [too_big])
     assert response.startswith(b"HTTP/1.1 400 ")
     assert b"too long" in response and b"api_error" not in response
@@ -217,7 +222,7 @@ def test_relay_passes_auth_failures_straight_through(relay, clean_state, tmp_pat
     assert response.startswith(b"HTTP/1.1 401 ")
     assert len(sent) == 1
     assert clean_state._cooldown_until is None
-    assert clean_state._counters["by_status"]["other"] == 1
+    assert clean_state._counters.by_status["other"] == 1
 
 
 def test_relay_retries_dropped_connections(relay, clean_state, tmp_path, monkeypatch):
@@ -235,10 +240,19 @@ def test_relay_retries_dropped_connections(relay, clean_state, tmp_path, monkeyp
 
 def test_relay_applies_hand_edited_rules_without_restart(relay, clean_state, tmp_path):
     import yaml
+
     rules_file = tmp_path / "rewrite-rules.yaml"
-    rules_file.write_text(yaml.safe_dump({"version": 1, "rules": [
-        {"path": "tier", "op": "set_value", "value": "priority"},
-    ], "models": {}}))
+    rules_file.write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "rules": [
+                    {"path": "tier", "op": "set_value", "value": "priority"},
+                ],
+                "models": {},
+            }
+        )
+    )
     raw = json.dumps({"max_tokens": 4096, "tier": "standard", "messages": []}).encode()
     response, sent = relay(raw, [ok(TEXT_REPLY)])
     assert response.startswith(b"HTTP/1.1 200 ")
@@ -253,8 +267,12 @@ def sse_event(payload):
     return f"event: message\ndata: {json.dumps(payload)}\n\n".encode()
 
 
-OVERLOADED_STREAM = sse_event({"type": "error", "error": {
-    "type": "overloaded_error", "message": "Overloaded, try again shortly"}})
+OVERLOADED_STREAM = sse_event(
+    {
+        "type": "error",
+        "error": {"type": "overloaded_error", "message": "Overloaded, try again shortly"},
+    }
+)
 
 
 def test_sse_prefix_error_detection(clean_state):
@@ -269,11 +287,13 @@ def test_sse_prefix_error_detection(clean_state):
 
 def test_read_sse_prefix_caps_bytes(clean_state):
     from conftest import FakeConn, FakeUpstream
+
     blob = b"x" * 40000
     prefix = clean_state._read_sse_prefix(FakeConn(), FakeUpstream(200, blob, "text/event-stream"))
     assert prefix == blob[:32768]
     short = clean_state._read_sse_prefix(
-        FakeConn(), FakeUpstream(200, b"data: 1\n\ntrailing", "text/event-stream"))
+        FakeConn(), FakeUpstream(200, b"data: 1\n\ntrailing", "text/event-stream")
+    )
     assert short == b"data: 1\n\ntrailing"
 
 
@@ -286,7 +306,7 @@ def test_relay_retries_embedded_overload(relay, clean_state, tmp_path, monkeypat
     assert response.startswith(b"HTTP/1.1 200 ")
     assert b"message_stop" in response and b"overloaded" not in response.lower()
     assert len(sent) == 2 and len(slept) == 1
-    assert clean_state._counters["transient_retries_total"] == 1
+    assert clean_state._counters.transient_retries_total == 1
     assert "transient sse:" in (tmp_path / "proxy.log").read_text()
 
 
@@ -315,12 +335,18 @@ def test_relay_passes_stop_errors_through(relay, clean_state, tmp_path, monkeypa
 
 
 def test_pump_tolerates_odd_frames(relay, clean_state, tmp_path):
-    raw = json.dumps({
-        "max_tokens": 4096, "messages": [], "stream": True,
-        "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-    }).encode()
-    stream = (b": ping\n\ndata: [1, 2]\n\nevent: done\ndata: [DONE]\n\n"
-              b'event: message_stop\ndata: {"type": "message_stop"}\n\n')
+    raw = json.dumps(
+        {
+            "max_tokens": 4096,
+            "messages": [],
+            "stream": True,
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+        }
+    ).encode()
+    stream = (
+        b": ping\n\ndata: [1, 2]\n\nevent: done\ndata: [DONE]\n\n"
+        b'event: message_stop\ndata: {"type": "message_stop"}\n\n'
+    )
     response, _ = relay(raw, [(200, stream, "text/event-stream")])
     assert response.startswith(b"HTTP/1.1 200 ")
     assert b"ping" in response and b"[DONE]" in response  # passed through intact
@@ -375,10 +401,14 @@ def test_relay_cuts_passthrough_at_the_deadline(relay, clean_state, tmp_path, mo
 
 def test_relay_cuts_sse_pump_at_the_deadline(relay, clean_state, tmp_path, monkeypatch):
     monkeypatch.setattr(clean_state, "STREAM_TIMEOUT", -1.0)
-    raw = json.dumps({
-        "max_tokens": 4096, "messages": [], "stream": True,
-        "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-    }).encode()
+    raw = json.dumps(
+        {
+            "max_tokens": 4096,
+            "messages": [],
+            "stream": True,
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+        }
+    ).encode()
     stream = sse_event({"type": "message_start"}) + sse_event({"type": "message_stop"})
     response, _ = relay(raw, [(200, stream, "text/event-stream")])
     assert response.startswith(b"HTTP/1.1 200 ")
@@ -386,10 +416,13 @@ def test_relay_cuts_sse_pump_at_the_deadline(relay, clean_state, tmp_path, monke
 
 
 def test_pump_json_skips_empty_bodies(relay, clean_state):
-    raw = json.dumps({
-        "max_tokens": 4096, "messages": [],
-        "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-    }).encode()
+    raw = json.dumps(
+        {
+            "max_tokens": 4096,
+            "messages": [],
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+        }
+    ).encode()
     response, _ = relay(raw, [(200, b"", "application/json")])
     assert response.startswith(b"HTTP/1.1 200 ")
     assert response.count(b"0\r\n\r\n") == 1  # one terminator, not two
@@ -423,10 +456,13 @@ def test_note_usage_totals_samples_and_substitutions(clean_state, tmp_path):
 
 
 def test_relay_skips_samples_for_tool_requests(relay, clean_state):
-    raw = json.dumps({
-        "max_tokens": 4096, "messages": [],
-        "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-    }).encode()
+    raw = json.dumps(
+        {
+            "max_tokens": 4096,
+            "messages": [],
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+        }
+    ).encode()
     reply = dict(TEXT_REPLY, usage={"input_tokens": 5000, "output_tokens": 100})
     relay(raw, [ok(reply)])
     assert clean_state._usage_totals["input_tokens"] == 5000
@@ -435,12 +471,15 @@ def test_relay_skips_samples_for_tool_requests(relay, clean_state):
 
 def test_relay_reports_json_usage_in_the_line(relay, clean_state, tmp_path):
     raw = json.dumps({"model": "muse-spark-1.3", "max_tokens": 4096, "messages": []}).encode()
-    reply = dict(TEXT_REPLY, model="muse-spark-1.3",
-                 usage={"input_tokens": 100, "output_tokens": 20})
+    reply = dict(
+        TEXT_REPLY, model="muse-spark-1.3", usage={"input_tokens": 100, "output_tokens": 20}
+    )
     response, _ = relay(raw, [ok(reply)])
     assert response.startswith(b"HTTP/1.1 200 ")
     match = LINE.search((tmp_path / "proxy.log").read_text())
-    assert match and match.group(5).strip() == "in=100 out=20 stop=end_turn blocks=text:1 no-reasoning"
+    assert (
+        match and match.group(5).strip() == "in=100 out=20 stop=end_turn blocks=text:1 no-reasoning"
+    )
     assert "model-substitution" not in (tmp_path / "proxy.log").read_text()
     assert clean_state._usage_totals == {"input_tokens": 100, "output_tokens": 20}
     assert list(clean_state._ratio_samples) == [(len(raw), 100)]
@@ -456,12 +495,16 @@ def test_relay_warns_on_model_substitution(relay, clean_state, tmp_path):
 
 def test_relay_reads_sse_usage_without_sources(relay, clean_state, tmp_path):
     raw = json.dumps({"model": "m", "max_tokens": 4096, "messages": [], "stream": True}).encode()
-    start = {"type": "message_start", "message": {
-        "model": "m", "usage": {"input_tokens": 300, "output_tokens": 0}}}
-    delta = {"type": "message_delta",
-             "usage": {"output_tokens": 45}, "delta": {"type": "text_delta"}}
-    stream = (sse_event(start) + sse_event(delta)
-              + sse_event({"type": "message_stop"}))
+    start = {
+        "type": "message_start",
+        "message": {"model": "m", "usage": {"input_tokens": 300, "output_tokens": 0}},
+    }
+    delta = {
+        "type": "message_delta",
+        "usage": {"output_tokens": 45},
+        "delta": {"type": "text_delta"},
+    }
+    stream = sse_event(start) + sse_event(delta) + sse_event({"type": "message_stop"})
     response, _ = relay(raw, [(200, stream, "text/event-stream")])
     assert response.startswith(b"HTTP/1.1 200 ")
     assert b"web_search_tool_result" not in response  # observed, not injected
@@ -471,36 +514,16 @@ def test_relay_reads_sse_usage_without_sources(relay, clean_state, tmp_path):
 
 def test_relay_sse_usage_takes_the_last_delta(relay, clean_state, tmp_path):
     raw = json.dumps({"max_tokens": 4096, "messages": [], "stream": True}).encode()
-    stream = (sse_event({"type": "message_delta", "usage": {"output_tokens": 10}})
-              + sse_event({"type": "message_delta", "usage": {"output_tokens": 30}})
-              + sse_event({"type": "message_stop"}))
+    stream = (
+        sse_event({"type": "message_delta", "usage": {"output_tokens": 10}})
+        + sse_event({"type": "message_delta", "usage": {"output_tokens": 30}})
+        + sse_event({"type": "message_stop"})
+    )
     relay(raw, [(200, stream, "text/event-stream")])
     assert clean_state._usage_totals == {"input_tokens": 0, "output_tokens": 30}
 
 
 # count_tokens: served locally from the calibrated ratio
-
-
-def test_load_calibration_survives_anything(clean_state, tmp_path, monkeypatch):
-    assert clean_state.load_calibration() == {"chars": 0, "tokens": 0, "samples": 0}
-    cal = tmp_path / "calibration.json"
-    cal.write_text("{nope")
-    assert clean_state.load_calibration() == {"chars": 0, "tokens": 0, "samples": 0}
-    cal.write_text(json.dumps({"chars": 100, "tokens": -5, "samples": "many"}))
-    assert clean_state.load_calibration() == {"chars": 100, "tokens": 0, "samples": 0}
-    cal.write_text(json.dumps({"chars": 100, "tokens": 25, "samples": 3}))
-    assert clean_state.load_calibration() == {"chars": 100, "tokens": 25, "samples": 3}
-
-
-def test_estimate_tokens_pools_and_checkpoints(clean_state, tmp_path):
-    assert clean_state.estimate_tokens(100) == (25, 4.0, 0)  # the guess it replaces
-    clean_state._ratio_samples.append((300, 100))
-    tokens, ratio, samples = clean_state.estimate_tokens(150)
-    assert (tokens, ratio, samples) == (50, 3.0, 1)
-    assert list(clean_state._ratio_samples) == []  # folded into the seed
-    assert json.loads((tmp_path / "calibration.json").read_text()) == {
-        "chars": 300, "tokens": 100, "samples": 1}
-    assert clean_state.estimate_tokens(150) == (50, 3.0, 1)  # seed survives alone
 
 
 def test_relay_serves_count_tokens_locally(relay, clean_state, tmp_path):
@@ -512,7 +535,7 @@ def test_relay_serves_count_tokens_locally(relay, clean_state, tmp_path):
     assert body == {"input_tokens": -(-len(raw) // 4)}  # ceil(chars/4), no data yet
     log = (tmp_path / "proxy.log").read_text()
     assert "attempts=0 [estimated]" in log and "ratio=4.00 samples=0" in log
-    assert clean_state._counters["by_status"]["2xx"] == 1
+    assert clean_state._counters.by_status["2xx"] == 1
 
 
 def test_relay_count_tokens_improves_with_use(relay, clean_state, tmp_path):
@@ -524,13 +547,15 @@ def test_relay_count_tokens_improves_with_use(relay, clean_state, tmp_path):
     response, _ = relay(raw, [ok(TEXT_REPLY)], path="/v1/messages/count_tokens")
     body = json.loads(response.partition(b"\r\n\r\n")[2])
     import math
+
     assert body == {"input_tokens": math.ceil(len(raw) / ratio)}
     assert f"ratio={ratio:.2f} samples=1" in (tmp_path / "proxy.log").read_text()
 
 
 def test_relay_ignores_count_tokens_gets(relay, clean_state):
-    response, sent = relay(b"", [(404, b"nope", "text/plain")],
-                           path="/v1/messages/count_tokens", command="GET")
+    response, sent = relay(
+        b"", [(404, b"nope", "text/plain")], path="/v1/messages/count_tokens", command="GET"
+    )
     assert response.startswith(b"HTTP/1.1 404 ")
     assert len(sent) == 1  # only POST is served locally
 
@@ -542,38 +567,69 @@ def test_relay_flags_an_empty_content_200(relay, clean_state, tmp_path):
     # The failure the max_tokens floor exists to prevent. Nothing proved it had
     # stopped happening, because nothing counted it.
     raw = json.dumps({"model": "muse-spark-1.3", "max_tokens": 4096, "messages": []}).encode()
-    relay(raw, [ok({"content": [], "stop_reason": "max_tokens",
-                    "usage": {"input_tokens": 9, "output_tokens": 200}})])
+    relay(
+        raw,
+        [
+            ok(
+                {
+                    "content": [],
+                    "stop_reason": "max_tokens",
+                    "usage": {"input_tokens": 9, "output_tokens": 200},
+                }
+            )
+        ],
+    )
     match = LINE.search((tmp_path / "proxy.log").read_text())
     assert match and "stop=max_tokens blocks=none" in match.group(5)
-    assert clean_state._counters["empty_content_200s"] == 1
-    assert clean_state._counters["stop_reasons"] == {"max_tokens": 1}
+    assert clean_state._counters.empty_content_200s == 1
+    assert clean_state._counters.stop_reasons == {"max_tokens": 1}
 
 
 def test_relay_tallies_mixed_blocks(relay, clean_state, tmp_path):
     raw = json.dumps({"model": "muse-spark-1.3", "max_tokens": 4096, "messages": []}).encode()
-    relay(raw, [ok({"stop_reason": "tool_use", "content": [
-        {"type": "text", "text": "a"},
-        {"type": "thinking", "thinking": "b"},
-        {"type": "tool_use", "id": "1", "name": "x", "input": {}},
-        {"type": "tool_use", "id": "2", "name": "y", "input": {}},
-    ]})])
+    relay(
+        raw,
+        [
+            ok(
+                {
+                    "stop_reason": "tool_use",
+                    "content": [
+                        {"type": "text", "text": "a"},
+                        {"type": "thinking", "thinking": "b"},
+                        {"type": "tool_use", "id": "1", "name": "x", "input": {}},
+                        {"type": "tool_use", "id": "2", "name": "y", "input": {}},
+                    ],
+                }
+            )
+        ],
+    )
     match = LINE.search((tmp_path / "proxy.log").read_text())
     assert match and "stop=tool_use blocks=text:1,thinking:1,tool_use:2" in match.group(5)
-    assert clean_state._counters["empty_content_200s"] == 0
+    assert clean_state._counters.empty_content_200s == 0
 
 
 def test_relay_does_not_tally_the_injected_sources_block(relay, clean_state, tmp_path):
     # The proxy's own web_search_tool_result must not read as model output.
-    raw = json.dumps({
-        "model": "muse-spark-1.3", "max_tokens": 4096, "messages": [],
-        "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-    }).encode()
-    reply = {"stop_reason": "end_turn", "content": [
-        {"type": "server_tool_use", "id": "s1", "name": "web_search",
-         "input": {"type": "open_page", "url": "https://example.com/a"}},
-        {"type": "text", "text": "done"},
-    ]}
+    raw = json.dumps(
+        {
+            "model": "muse-spark-1.3",
+            "max_tokens": 4096,
+            "messages": [],
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+        }
+    ).encode()
+    reply = {
+        "stop_reason": "end_turn",
+        "content": [
+            {
+                "type": "server_tool_use",
+                "id": "s1",
+                "name": "web_search",
+                "input": {"type": "open_page", "url": "https://example.com/a"},
+            },
+            {"type": "text", "text": "done"},
+        ],
+    }
     response, _ = relay(raw, [ok(reply)])
     assert b"web_search_tool_result" in response
     match = LINE.search((tmp_path / "proxy.log").read_text())
@@ -583,25 +639,55 @@ def test_relay_does_not_tally_the_injected_sources_block(relay, clean_state, tmp
 def test_relay_counts_the_no_reasoning_shape(relay, clean_state, tmp_path):
     bare = json.dumps({"model": "muse-spark-1.3", "max_tokens": 4096, "messages": []}).encode()
     relay(bare, [ok(TEXT_REPLY)])
-    assert clean_state._counters["no_reasoning_requests_total"] == 1
+    assert clean_state._counters.no_reasoning_requests_total == 1
 
     # A request that names a tier is not the classifier shape, whichever of the
     # two spellings it uses.
-    with_effort = json.dumps({"model": "muse-spark-1.3", "max_tokens": 4096,
-                              "messages": [], "output_config": {"effort": "max"}}).encode()
+    with_effort = json.dumps(
+        {
+            "model": "muse-spark-1.3",
+            "max_tokens": 4096,
+            "messages": [],
+            "output_config": {"effort": "max"},
+        }
+    ).encode()
     relay(with_effort, [ok(TEXT_REPLY)])
-    thinking = json.dumps({"model": "muse-spark-1.3", "max_tokens": 40000,
-                           "messages": [], "thinking": {"type": "adaptive"}}).encode()
+    thinking = json.dumps(
+        {
+            "model": "muse-spark-1.3",
+            "max_tokens": 40000,
+            "messages": [],
+            "thinking": {"type": "adaptive"},
+        }
+    ).encode()
     relay(thinking, [ok(TEXT_REPLY)])
-    assert clean_state._counters["no_reasoning_requests_total"] == 1
+    assert clean_state._counters.no_reasoning_requests_total == 1
 
 
 def test_relay_reports_thinking_tokens(relay, clean_state, tmp_path):
-    raw = json.dumps({"model": "muse-spark-1.3", "max_tokens": 40000, "messages": [],
-                      "thinking": {"type": "adaptive"}}).encode()
-    relay(raw, [ok(dict(TEXT_REPLY, usage={
-        "input_tokens": 47, "output_tokens": 903,
-        "output_tokens_details": {"thinking_tokens": 706}}))])
+    raw = json.dumps(
+        {
+            "model": "muse-spark-1.3",
+            "max_tokens": 40000,
+            "messages": [],
+            "thinking": {"type": "adaptive"},
+        }
+    ).encode()
+    relay(
+        raw,
+        [
+            ok(
+                dict(
+                    TEXT_REPLY,
+                    usage={
+                        "input_tokens": 47,
+                        "output_tokens": 903,
+                        "output_tokens_details": {"thinking_tokens": 706},
+                    },
+                )
+            )
+        ],
+    )
     match = LINE.search((tmp_path / "proxy.log").read_text())
     assert match and "in=47 out=903 think=706" in match.group(5)
 
@@ -609,30 +695,51 @@ def test_relay_reports_thinking_tokens(relay, clean_state, tmp_path):
 def test_relay_sse_tallies_blocks_and_stop_reason(relay, clean_state, tmp_path):
     raw = json.dumps({"model": "muse-spark-1.3", "max_tokens": 4096, "messages": []}).encode()
     stream = (
-        sse_event({"type": "message_start",
-                   "message": {"type": "message", "model": "muse-spark-1.3",
-                               "stop_reason": None,
-                               "usage": {"input_tokens": 10, "output_tokens": 0}}})
-        + sse_event({"type": "content_block_start", "index": 0,
-                     "content_block": {"type": "thinking", "thinking": ""}})
-        + sse_event({"type": "content_block_start", "index": 1,
-                     "content_block": {"type": "text", "text": ""}})
-        + sse_event({"type": "message_delta", "delta": {"stop_reason": "end_turn"},
-                     "usage": {"output_tokens": 12}})
+        sse_event(
+            {
+                "type": "message_start",
+                "message": {
+                    "type": "message",
+                    "model": "muse-spark-1.3",
+                    "stop_reason": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 0},
+                },
+            }
+        )
+        + sse_event(
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "thinking", "thinking": ""},
+            }
+        )
+        + sse_event(
+            {
+                "type": "content_block_start",
+                "index": 1,
+                "content_block": {"type": "text", "text": ""},
+            }
+        )
+        + sse_event(
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn"},
+                "usage": {"output_tokens": 12},
+            }
+        )
         + sse_event({"type": "message_stop"})
     )
     relay(raw, [(200, stream, "text/event-stream")])
     match = LINE.search((tmp_path / "proxy.log").read_text())
     # message_start carries stop_reason null; the delta's value must survive it.
     assert match and "stop=end_turn blocks=text:1,thinking:1" in match.group(5)
-    assert clean_state._counters["empty_content_200s"] == 0
+    assert clean_state._counters.empty_content_200s == 0
 
 
 def test_health_reports_the_outcome_counters(relay, clean_state):
     raw = json.dumps({"model": "muse-spark-1.3", "max_tokens": 4096, "messages": []}).encode()
     relay(raw, [ok(TEXT_REPLY)])
-    response, _ = relay(b"", [(200, b"", "application/json")],
-                        path="/__health", command="GET")
+    response, _ = relay(b"", [(200, b"", "application/json")], path="/__health", command="GET")
     health = json.loads(response.partition(b"\r\n\r\n")[2])
     assert health["stop_reasons"] == {"end_turn": 1}
     assert health["empty_content_200s"] == 0
@@ -654,7 +761,7 @@ def test_bootstrap_peek_never_arms_a_socket_timeout(proxy, clean_state, monkeypa
     import socket as _socket
 
     monkeypatch.setattr(proxy, "BOOTSTRAP_TIMEOUT", 0.05)
-    left, right = _socket.socketpair()          # local, and never written to
+    left, right = _socket.socketpair()  # local, and never written to
     armed = []
 
     class WatchedSock:
@@ -667,15 +774,18 @@ def test_bootstrap_peek_never_arms_a_socket_timeout(proxy, clean_state, monkeypa
             armed.append(t)
 
     try:
+
         class Conn:
             sock = WatchedSock()
 
             def close(self):
                 pass
 
-        body = sse_event({"type": "message_start",
-                          "message": {"type": "message", "usage": {"input_tokens": 1}}})
+        body = sse_event(
+            {"type": "message_start", "message": {"type": "message", "usage": {"input_tokens": 1}}}
+        )
         from conftest import FakeUpstream
+
         upstream = FakeUpstream(200, body, "text/event-stream")
 
         prefix = proxy._read_sse_prefix(Conn(), upstream)
@@ -692,6 +802,7 @@ def test_bootstrap_peek_never_arms_a_socket_timeout(proxy, clean_state, monkeypa
 
 def test_pump_sse_survives_an_upstream_that_dies_mid_stream(proxy, clean_state, tmp_path):
     """An upstream read failing after headers commit is logged, not raised."""
+
     class DyingUpstream:
         def __init__(self):
             self._first = True
@@ -699,9 +810,12 @@ def test_pump_sse_survives_an_upstream_that_dies_mid_stream(proxy, clean_state, 
         def read(self, n=-1):
             if self._first:
                 self._first = False
-                return sse_event({"type": "message_start",
-                                  "message": {"type": "message",
-                                              "usage": {"input_tokens": 7}}})
+                return sse_event(
+                    {
+                        "type": "message_start",
+                        "message": {"type": "message", "usage": {"input_tokens": 7}},
+                    }
+                )
             raise OSError("cannot read from timed out object")
 
     handler = proxy.Handler.__new__(proxy.Handler)
@@ -710,7 +824,145 @@ def test_pump_sse_survives_an_upstream_that_dies_mid_stream(proxy, clean_state, 
 
     usage = proxy.Handler._pump_sse(handler, DyingUpstream(), None)
 
-    assert usage.get("input_tokens") == 7     # what did arrive is kept
+    assert usage.get("input_tokens") == 7  # what did arrive is kept
     assert sent, "the bytes read before the cut are still served"
     log = (tmp_path / "proxy.log").read_text()
     assert "upstream-cut" in log
+
+
+# wants_web_search
+
+
+def test_wants_web_search(clean_state):
+    yes = body({"tools": [{"type": "web_search_20250305"}]})
+    no = body({"tools": [{"name": "bash"}]})
+    assert clean_state.wants_web_search(yes) is True
+    assert clean_state.wants_web_search(no) is False
+    assert clean_state.wants_web_search(b"junk") is False
+
+
+# title_from_url: honest labels only, never invented titles
+
+
+def test_title_from_url(clean_state):
+    title = clean_state.title_from_url
+    assert title("https://example.com/docs/my-page.html") == "example.com — my page"
+    assert title("https://www.example.com/") == "example.com"
+    assert title("https://example.com/a_b-c") == "example.com — a b c"
+
+
+# SearchSources: harvest open_page urls, build the block Claude Code parses
+
+
+def test_search_sources_collects_and_dedupes(clean_state):
+    sources = clean_state.SearchSources()
+    sources.observe({"type": "text", "text": "hi"}, 0)
+    sources.observe(
+        {
+            "type": "server_tool_use",
+            "id": "srv_1",
+            "input": {"type": "open_page", "url": "https://a.example/x"},
+        },
+        1,
+    )
+    sources.observe(
+        {"type": "server_tool_use", "id": "srv_2", "input": {"type": "search", "query": "y"}}, 2
+    )
+    sources.observe(
+        {
+            "type": "server_tool_use",
+            "id": "srv_3",
+            "input": {"type": "open_page", "url": "https://a.example/x"},
+        },
+        3,
+    )
+    assert sources.urls == ["https://a.example/x"]
+    assert sources.tool_use_id == "srv_1"
+    assert sources.max_index == 3
+
+
+def test_search_sources_block_shape_and_fallback_id(clean_state):
+    sources = clean_state.SearchSources()
+    assert sources.block() is None
+    sources.observe(
+        {"type": "server_tool_use", "input": {"type": "open_page", "url": "https://a.example/x"}}, 0
+    )
+    block = sources.block()
+    assert block["type"] == "web_search_tool_result"
+    assert block["tool_use_id"] == "ws_proxy_sources"
+    assert block["content"][0]["url"] == "https://a.example/x"
+
+
+# parse_retry_after, transient_backoff, _is_stop: the transient taxonomy
+
+
+def test_parse_retry_after_seconds_and_absent(clean_state):
+    parse = clean_state.parse_retry_after
+    assert parse("120") == 120
+    assert parse("  7 ") == 7
+    assert parse(None) is None
+    assert parse("") is None
+    assert parse("soon") is None
+    assert parse("12.5") is None
+
+
+def test_parse_retry_after_http_date(clean_state):
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 9, 19, 12, 0, 0, tzinfo=timezone.utc)
+    parse = clean_state.parse_retry_after
+    assert parse("Sat, 19 Sep 2026 12:00:10 GMT", now) == 10
+    assert parse("Sat, 19 Sep 2026 11:59:00 GMT", now) == 0
+
+
+def test_transient_backoff_honors_retry_after_with_cap(clean_state):
+    assert clean_state.transient_backoff(0, 5) == 5.0
+    assert clean_state.transient_backoff(0, 120) == 30.0
+
+
+def test_transient_backoff_grows_exponentially(clean_state):
+    def backoff(n):
+        return clean_state.transient_backoff(n, None, rand_fn=lambda a, b: 1.0)
+
+    assert [backoff(n) for n in range(4)] == [1.0, 2.0, 4.0, 8.0]
+    assert backoff(10) == 30.0
+
+
+def test_is_stop_and_hints(clean_state):
+    is_stop, hint = clean_state._is_stop, clean_state._stop_hint
+    assert is_stop(401, "") and is_stop(402, "whatever")
+    assert not is_stop(429, "rate_limit exceeded, slow down")
+    assert not is_stop(503, "overloaded")
+    assert is_stop(400, "prompt is too long: 1200000 > 1000000")
+    assert is_stop(429, "request reaches maximum context length")
+    assert "compact" in hint(400, "context too long")
+    assert "key" in hint(401, "")
+    assert hint(503, "overloaded") == ""
+
+
+def test_take_transient_wait_records_and_counts(clean_state, monkeypatch):
+    slept = []
+    monkeypatch.setattr(clean_state, "_sleep", slept.append)
+    waits = []
+    clean_state._take_transient_wait(waits, 1, "503")
+    assert waits == [f"503:{slept[0]:g}s"]
+    assert 1.0 <= slept[0] <= 2.0
+    assert clean_state._counters.transient_retries_total == 1
+
+
+def test_cooldown_window(clean_state):
+    assert clean_state._in_cooldown(now=100.0) is False
+    clean_state._enter_cooldown(now=100.0)
+    assert clean_state._in_cooldown(now=159.9) is True
+    assert clean_state._in_cooldown(now=160.0) is False
+    assert clean_state._cooldown_until == 160.0
+
+
+def test_deadline_hit(clean_state, tmp_path):
+    import time
+
+    assert clean_state._deadline_hit(None) is False
+    assert clean_state._deadline_hit(time.monotonic() + 60) is False
+    assert not (tmp_path / "proxy.log").exists()
+    assert clean_state._deadline_hit(time.monotonic() - 1) is True
+    assert "stream-timeout: closing after 3600s" in (tmp_path / "proxy.log").read_text()

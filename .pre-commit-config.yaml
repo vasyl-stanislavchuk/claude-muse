@@ -1,0 +1,36 @@
+# Commit gate, run by .githooks/pre-commit when pre-commit is installed.
+# Never run `pre-commit install`: it would move core.hooksPath off .githooks/
+# and silently disable the install re-link. The shim is the install.
+#
+# The set mirrors medallion-dev-cli, minus mypy (deferred until the engine
+# is fully annotated) and pytest (CI runs it; the suite stays out of commits).
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+        # 1MB: anything bigger is an asset that needs a deliberate home,
+        # not a drive-by commit.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.17
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: make-shell
+        name: shell syntax (bash -n, shellcheck)
+        entry: make shell
+        language: system
+        pass_filenames: false
+        always_run: true

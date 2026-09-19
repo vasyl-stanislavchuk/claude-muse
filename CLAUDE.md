@@ -6,7 +6,8 @@ Read [`docs/design.md`](docs/design.md) before changing where a piece lives, and
 
 ## Project structure
 
-- `bin/proxy.py` - the rewriting proxy. Repairs the request shapes `api.meta.ai` rejects, passes everything else byte for byte
+- `proxy.py` - the rewriting proxy's thin entry. Imports `engine.server` and runs it; the repo layout mirrors the install, so this file and `engine/` sit side by side in both
+- `engine/` - the proxy itself, one concern per module: `server` (HTTP layer), `rewrite` (request repair), `reasoning` (thinking pipeline), `policy` (YAML rules plus baked-ins), `relay` (upstream traffic), `state` (persistence plus counters), `census` (shape observations)
 - `bin/probe.sh` - replays the request shapes that decide whether this works, against the proxy or the raw endpoint
 - `bin/api-key.sh` - the `apiKeyHelper`. Unwraps the subscription key from the login keychain
 - `bin/run-prompts.sh` - non-interactive harness for comparing models on the same prompts
@@ -17,10 +18,10 @@ Read [`docs/design.md`](docs/design.md) before changing where a piece lives, and
 
 ## Editing the repo is editing the install
 
-`install.sh` symlinks `bin/` and `lib/` into `~/.config/claude-muse`, so a change here is live at the next launch with nothing to copy. `.githooks/` re-runs it on every commit, pull and branch switch, which matters because `install.sh` names each file explicitly: **a new file needs a `place` line, and without one it is never linked no matter how many times the hook fires.** Three consequences worth holding onto:
+`install.sh` symlinks `proxy.py`, `bin/`, `lib/` and `engine/` into `~/.config/claude-muse`, so a change here is live at the next launch with nothing to copy. `.githooks/` re-runs it on every commit, pull and branch switch, which matters because `install.sh` names each file explicitly: **a new file needs a `place` line, and without one it is never linked no matter how many times the hook fires.** `engine/` is the exception: it is linked as one directory, so a new module there needs no line. Three consequences worth holding onto:
 
-- **The running proxy holds its source in memory.** An edited `proxy.py` does nothing until the proxy restarts. `preflight.sh` compares the running proxy's hash against the file and restarts it, which is the difference between a fix landing and a fix appearing to land.
-- **Every `proxy.py` edit costs a probe.** The hash moves, so the next launch spends two real API calls proving the repairs still work. That runs about 28 seconds, almost all of it the web search call. Batching proxy changes is cheaper than trickling them.
+- **The running proxy holds its source in memory.** An edited engine file does nothing until the proxy restarts. `preflight.sh` compares the running proxy's hash against the engine on disk and restarts it, which is the difference between a fix landing and a fix appearing to land.
+- **Every engine edit costs a probe.** The hash moves, so the next launch spends two real API calls proving the repairs still work. That runs about 28 seconds, almost all of it the web search call. Batching proxy changes is cheaper than trickling them.
 - **`settings.json` is yours, so nothing rewrites it.** The template grows keys over time and the rendered file never gets them; `install.sh` names what is missing and leaves the merge to you. The hook surfaces that notice on every commit, which is the only reason you will hear about drift at all.
 
 **Never restart the proxy while a session is using it.** `install.sh --no-agent` places files and leaves launchd alone.
@@ -34,14 +35,13 @@ Read [`docs/design.md`](docs/design.md) before changing where a piece lives, and
 ```bash
 # call rewrite() on a payload without touching the network
 /usr/bin/python3 -c "
-import importlib.util, json
-spec = importlib.util.spec_from_file_location('p', 'bin/proxy.py')
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-print(m.rewrite(json.dumps({'max_tokens': 200, 'tool_choice': {'type': 'none'}}).encode()))
+import json
+from engine.rewrite import rewrite
+print(rewrite(json.dumps({'max_tokens': 200, 'tool_choice': {'type': 'none'}}).encode()))
 "
 
 # a second instance on a spare port, safe beside a live one
-CLAUDE_MUSE_PROXY_PORT=8799 CLAUDE_MUSE_PROXY_LOG=/tmp/muse-test.log /usr/bin/python3 bin/proxy.py &
+CLAUDE_MUSE_PROXY_PORT=8799 CLAUDE_MUSE_PROXY_LOG=/tmp/muse-test.log /usr/bin/python3 proxy.py &
 curl -s 127.0.0.1:8799/__health | jq
 ```
 
