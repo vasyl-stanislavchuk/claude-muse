@@ -6,6 +6,16 @@ You keep the client you already know - the keyboard, the permission model, the s
 
 Your existing `claude` is untouched. `claude-muse` is a separate shell function with its own config profile, so nothing here can change how your normal sessions behave.
 
+## Where this is
+
+**It works, and it holds a long task.** Web search, subagents, file edits, streaming and the context readout all behave; the proxy repairs the shapes the endpoint rejects, learns the ones nobody anticipated, rides out rate limits, and answers `count_tokens` itself. Every response now logs why it stopped and what it contained, so a claim about the model's behavior is a number you can grep for rather than an impression.
+
+**What still costs you something is the safety classifier.** It is a little over half of all requests, it carries no reasoning directive, and this endpoint has no setting for "do not reason" - its cheapest tier is `low`. So the classifier pays full reasoning on every mechanical yes/no question, and when it runs past Claude Code's patience the tool call is denied rather than judged. Allowing the tools you trust is the supported answer, and the profile ships with the edit tools already on that list.
+
+Three things are deliberately not repaired: the classifier above, `count_tokens` (answered from a calibrated estimate, never a tokenizer fact), and web-search sources (reconstructed only for pages the model actually opened). Each is labeled where it appears rather than quietly smoothed over.
+
+![claude-muse architecture: Claude Code sends requests to a local proxy that repairs the shapes Meta's endpoint rejects, learns new ones from its errors, retries transient failures and records every response, before forwarding to api.meta.ai.](docs/architecture.svg)
+
 ## Why a proxy is involved
 
 The Meta Model API serves an **Anthropic-compatible surface** at `https://api.meta.ai/v1/messages` - same request shape, same `anthropic-version` header, same response envelope. Compatible, but a *subset*, and Claude Code routinely sends fields that subset rejects.
@@ -43,6 +53,8 @@ claude-muse
 | `~/.config/claude-muse/proxy.log` | every rewrite and every upstream error. First place to look. Rotates at 1 MiB |
 | `~/.config/claude-muse/proxy.err` | empty unless the proxy crashed. A byte in here is a finding |
 | `~/.claude-profiles/muse/` | the Claude Code profile: settings, sessions, history |
+| `~/.claude-profiles/muse/CLAUDE.md` | how the model should behave in a muse session, symlinked from this repo |
+| `~/.claude-profiles/muse/hooks/continue-gate` | a `Stop` hook that blocks a turn ending by asking permission to continue |
 | `~/Library/LaunchAgents/co.medallion.claude-muse-proxy.plist` | keeps the proxy up across reboots |
 
 Runtime state stays out of the repo. The one thing worth knowing about the profile: it has **no `model` key on purpose**, because a settings-file model pin outranks `ANTHROPIC_MODEL` and would quietly send every request to Anthropic on a Meta key.

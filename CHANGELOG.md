@@ -9,11 +9,17 @@
 - **Every request gets an id, a latency and a tally.** The log line reads `r123 POST /v1/messages 200 812ms attempts=2 [notes]`, and `/__health` reports uptime, per-status counts and cooldown state.
 - **The batch harness now runs through the proxy.** `run-prompts.sh` shares its env with the shell function from `lib/model-env.sh`, so repairs apply and shapes are recorded; `--direct` preserves the old raw-endpoint behavior for A/B runs.
 - **`python3 -m pytest tests/` verifies the proxy offline**, so most changes can be checked without spending a token.
+- **File edits no longer wait on a safety verdict.** `Write`, `Edit`, `MultiEdit` and `NotebookEdit` are allowed outright, so a slow classifier can no longer take away the model's ability to change files partway through a long task.
+- **Sessions come with instructions to keep going.** A profile `CLAUDE.md` tells the model that an approved plan is the go-ahead, and a `Stop` hook blocks a turn that ends by asking permission to continue. It steps aside whenever background work is in flight, and gives up after two nudges.
+- **The log says why each response stopped and what was in it.** Every line carries `stop=`, a per-type block tally and a thinking-token count, and `/__health` counts empty responses, stop reasons, abandoned requests and how much traffic arrives with no reasoning tier set.
+- **The probe reports wall time on every row**, and `PROBE_REPS=5` repeats each one, because a slow success and a fast one are different answers.
 
 ### Changed
 
 - **State files are written atomically and capped** at 100 learned fields and 500 shapes, and each learned field records when it was first seen and how often it has fired.
 - **Repair policy now lives in `rewrite-rules.yaml`.** New endpoint quirks are fixed by editing data instead of code, take effect on the next request without a restart, and never cost a re-probe; per-model reasoning values live in the same file.
+- **A request that asks for no reasoning now gets the cheapest reasoning available** instead of having the instruction deleted. This endpoint cannot switch reasoning off, so "disabled" becomes its lowest tier; measured on one mechanical call, that halved both the wall time and the thinking tokens.
+- **The census records `output_config`**, which is where the reasoning tier actually travels. Whether an effort setting reaches the endpoint is now something you look up rather than argue about.
 - **Overloads embedded in streams retry like the 429s they behave as.** The proxy holds response headers for the first event-group - bounded at 32KB and 5s - so a 200-embedded overload can still wait and resend invisibly; anything vaguer passes through untouched.
 - **Timeouts are split by phase.** Connecting fails fast at 10s, accepted streams may run long on a 600s stall budget, and a 3600s wall clock (`CLAUDE_MUSE_STREAM_TIMEOUT`) cuts true runaways.
 - **Policy and learned state reload without a restart.** Hand edits to `rewrite-rules.yaml` or `learned.json` land on the next request; the proxy's own writes stay silent.
@@ -25,6 +31,8 @@
 
 - **An empty JSON response body no longer corrupts chunk framing.** It used to emit a second stream terminator mid-response.
 - **A keychain item without `.api_key` no longer authenticates as the literal string "null".** It now falls through to the file fallback or a clear error.
+- **The proxy can no longer learn away its own repairs.** A rejection naming a field the proxy sets itself is refused rather than recorded, which used to be able to silently undo a repair on every later request.
+- **An abandoned request is counted as one.** A session that gives up waiting used to be indistinguishable from one that was served.
 
 ## [0.1.0] - 2026-09-19
 

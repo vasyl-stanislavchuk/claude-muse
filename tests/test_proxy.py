@@ -106,11 +106,55 @@ def test_rewrite_drop_tool_choice_removes_the_key(clean_state):
 # rewrite: thinking, max_tokens, budget
 
 
-def test_rewrite_omits_disabled_thinking(clean_state):
+def test_rewrite_translates_disabled_thinking(clean_state):
+    # The endpoint rejects `thinking: {type: disabled}` outright and names the
+    # tiers it does take, of which `low` is the cheapest. Translating beats
+    # deleting: deleting turns "do not reason" into "reason however you like".
     payload = {"max_tokens": 4096, "thinking": {"type": "disabled"}}
     out, notes = clean_state.rewrite(body(payload))
-    assert "thinking" not in json.loads(out)
+    sent = json.loads(out)
+    assert "thinking" not in sent
+    assert sent["output_config"] == {"effort": "low"}
+    assert notes == ['thinking disabled->output_config={"effort": "low"}']
+
+
+def test_rewrite_merges_into_an_existing_output_config(clean_state):
+    payload = {"max_tokens": 4096, "thinking": {"type": "disabled"},
+               "output_config": {"format": "text"}}
+    out, _ = clean_state.rewrite(body(payload))
+    assert json.loads(out)["output_config"] == {"format": "text", "effort": "low"}
+
+
+def test_rewrite_omits_disabled_thinking_when_mapping_is_null(clean_state):
+    # The pre-translation behavior stays reachable for a hand-edited profile.
+    profile = dict(clean_state.MODEL_DEFAULTS, thinking_disabled_as=None)
+    payload = {"max_tokens": 4096, "thinking": {"type": "disabled"}}
+    notes = []
+    parsed = json.loads(body(payload))
+    clean_state.normalize_reasoning(parsed, notes, "muse-spark-1.3",
+                                    {"muse-spark-*": profile})
+    assert "thinking" not in parsed
+    assert "output_config" not in parsed
     assert notes == ["thinking disabled->omitted"]
+
+
+def test_rewrite_leaves_other_thinking_types_alone(clean_state):
+    # Only the disabled form is translated. `adaptive` is what the main loop
+    # sends and the endpoint takes it as it is.
+    payload = {"max_tokens": 40000, "thinking": {"type": "adaptive"}}
+    out, notes = clean_state.rewrite(body(payload))
+    assert json.loads(out)["thinking"] == {"type": "adaptive"}
+    assert notes == []
+
+
+def test_remember_refuses_proxy_owned_fields(clean_state):
+    # Learned drops run after normalize_reasoning, so learning one of these
+    # would delete the key the repair had just set, on every later request.
+    for field in ("output_config", "thinking", "effort", "reasoning_effort"):
+        clean_state.remember(field)
+        assert field not in clean_state._learned
+    clean_state.remember("top_k")
+    assert "top_k" in clean_state._learned
 
 
 def test_rewrite_floors_small_max_tokens(clean_state):

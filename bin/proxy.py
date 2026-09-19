@@ -20,7 +20,6 @@ import math
 import os
 import random
 import re
-import socket
 import sys
 import hashlib
 import threading
@@ -151,7 +150,20 @@ _counters = {
     "by_status": {"2xx": 0, "400": 0, "429": 0, "5xx": 0, "other": 0},
     "transient_retries_total": 0,
     "learned_hits_total": 0,
+    # An abandoned request used to be indistinguishable from a served one: both
+    # logged 200. Claude Code hanging up mid-classifier is the tell that it gave
+    # up waiting and is about to deny the tool call.
+    "client_hangups_total": 0,
+    # A 2xx carrying no content blocks. This is the failure the max_tokens floor
+    # exists to prevent, and nothing proved it stopped happening.
+    "empty_content_200s": 0,
+    # Requests carrying no reasoning directive. Named from the wire, not from
+    # the inference: this shape is the auto-mode classifier, but the proxy can
+    # only see the absence.
+    "no_reasoning_requests_total": 0,
+    "stop_reasons": {},
 }
+_STOP_REASON_MAX = 12
 _cooldown_until = None  # monotonic timestamp while cooling down, else None
 _STARTED = time.monotonic()
 
@@ -369,6 +381,34 @@ def _fold_usage_holder(usage: dict, holder) -> None:
     for key in ("input_tokens", "output_tokens"):
         if isinstance(nested.get(key), int):
             usage[key] = nested[key]
+    details = nested.get("output_tokens_details")
+    if isinstance(details, dict) and isinstance(details.get("thinking_tokens"), int):
+        usage["thinking_tokens"] = details["thinking_tokens"]
+
+
+def _fold_stop_reason(usage: dict, holder) -> None:
+    """Take stop_reason from a JSON body or an SSE message_delta.
+
+    The str guard is load-bearing: message_start carries stop_reason null, and
+    folding that would wipe the real value the delta brings later.
+    """
+    if not isinstance(holder, dict):
+        return
+    for candidate in (holder, holder.get("delta")):
+        if isinstance(candidate, dict) and isinstance(candidate.get("stop_reason"), str):
+            usage["stop_reason"] = candidate["stop_reason"]
+
+
+def _tally_block(usage: dict, block) -> None:
+    """Count one content block by type. Types only, never text.
+
+    Kept out of _fold_usage_holder because that one replaces and this one
+    accumulates; mixing the two contracts is how a retry double-counts.
+    """
+    if not isinstance(block, dict) or not isinstance(block.get("type"), str):
+        return
+    blocks = usage.setdefault("blocks", {})
+    blocks[block["type"]] = blocks.get(block["type"], 0) + 1
 
 
 def _note_usage(request_model, usage: dict, request_chars: int, has_tools: bool) -> None:
@@ -393,6 +433,37 @@ def _note_usage(request_model, usage: dict, request_chars: int, has_tools: bool)
         if (request_chars > 0 and isinstance(received, int) and received > 0
                 and not has_tools):
             _ratio_samples.append((request_chars, received))
+
+
+def _outcome_bits(usage: dict, no_reasoning: bool) -> str:
+    """The end of the log line: why it stopped, what it contained.
+
+    blocks= is emitted even when empty, as `blocks=none`, because an absent
+    field cannot be grepped for and an empty response is the thing worth
+    finding. `no-reasoning` is a bare token for the same reason.
+    """
+    bits = []
+    stop = usage.get("stop_reason")
+    if isinstance(stop, str):
+        bits.append(f"stop={stop}")
+    blocks = usage.get("blocks") or {}
+    bits.append("blocks=" + (",".join(f"{k}:{v}" for k, v in sorted(blocks.items()))
+                             if blocks else "none"))
+    if no_reasoning:
+        bits.append("no-reasoning")
+    return " ".join(bits)
+
+
+def _note_outcome(usage: dict, status: int, failed: bool) -> None:
+    """Tally stop reasons and empty 2xx bodies."""
+    with _counters_lock:
+        stop = usage.get("stop_reason")
+        if isinstance(stop, str):
+            reasons = _counters["stop_reasons"]
+            if stop in reasons or len(reasons) < _STOP_REASON_MAX:
+                reasons[stop] = reasons.get(stop, 0) + 1
+        if not failed and 200 <= status < 300 and not (usage.get("blocks") or {}):
+            _counters["empty_content_200s"] += 1
 
 
 def _in_cooldown(now=None) -> bool:
@@ -427,14 +498,24 @@ BAKED_IN_RULES = [
 RULES = os.path.expanduser("~/.config/claude-muse/rewrite-rules.yaml")
 _warned_ops = set()
 _warned_models = set()
+_warned_owned = set()
 
 # Per-model reasoning values, read from the same file under `models:`. Keys are
 # fnmatch globs; the first match wins. A model matching nothing gets these
 # conservative defaults with a log line.
+# thinking_disabled_as: what to send instead of a thinking block the endpoint
+# cannot parse. Measured 2026-09-19: `thinking: {"type":"disabled"}` answers
+# `400 reasoning_effort 'none' is not supported ... Supported values: [minimal,
+# low, medium, high, xhigh, max]`, and output_config.effort takes all of those
+# but `minimal`. So the least reasoning this endpoint will do is `low`, and a
+# client asking for none gets the nearest thing that exists rather than having
+# its instruction deleted. None falls back to drop_thinking_disabled.
 MODEL_DEFAULTS = {"min_max_tokens": 4096, "min_thinking_budget": 1024,
-                  "drop_thinking_disabled": True, "clamp_budget": True}
-BAKED_IN_PROFILES = {"muse-spark-*": dict(MODEL_DEFAULTS)}
+                  "drop_thinking_disabled": True, "clamp_budget": True,
+                  "thinking_disabled_as": {"output_config": {"effort": "low"}}}
+BAKED_IN_PROFILES = {"muse-spark-*": copy.deepcopy(MODEL_DEFAULTS)}
 _PROFILE_KEYS = {"min_max_tokens": int, "min_thinking_budget": int,
+                 "thinking_disabled_as": dict,
                  "drop_thinking_disabled": bool, "clamp_budget": bool}
 
 
@@ -517,9 +598,13 @@ def load_profiles() -> dict:
             value = profile.get(key, MODEL_DEFAULTS[key])
             if want is int:
                 valid = isinstance(value, int) and not isinstance(value, bool)
+            elif want is dict:
+                # None is a deliberate setting, not a mistake: it means "fall
+                # back to deleting the block", which is what shipped before.
+                valid = value is None or isinstance(value, dict)
             else:
                 valid = isinstance(value, bool)
-            clean[key] = value if valid else MODEL_DEFAULTS[key]
+            clean[key] = copy.deepcopy(value) if valid else copy.deepcopy(MODEL_DEFAULTS[key])
             if not valid and key in profile:
                 dropped += 1
         out[name] = clean
@@ -722,11 +807,25 @@ def normalize_reasoning(payload: dict, notes: list, model, profiles=None) -> Non
     """
     profile = _profile_for(model, profiles if profiles is not None else _PROFILES)
     thinking = payload.get("thinking")
-    if (profile["drop_thinking_disabled"] and isinstance(thinking, dict)
-            and thinking.get("type") == "disabled"):
-        del payload["thinking"]
-        notes.append("thinking disabled->omitted")
-        thinking = None
+    if isinstance(thinking, dict) and thinking.get("type") == "disabled":
+        mapping = profile.get("thinking_disabled_as")
+        if isinstance(mapping, dict) and mapping:
+            # Translate rather than delete. Deleting is the larger intervention:
+            # it turns "do not reason" into "reason however you like", which is
+            # how a mechanical side query ends up costing 700 thinking tokens.
+            del payload["thinking"]
+            for key, value in sorted(mapping.items()):
+                if isinstance(value, dict) and isinstance(payload.get(key), dict):
+                    payload[key].update(copy.deepcopy(value))
+                else:
+                    payload[key] = copy.deepcopy(value)
+            notes.append("thinking disabled->" + ",".join(
+                f"{k}={json.dumps(v, sort_keys=True)}" for k, v in sorted(mapping.items())))
+            thinking = None
+        elif profile["drop_thinking_disabled"]:
+            del payload["thinking"]
+            notes.append("thinking disabled->omitted")
+            thinking = None
     requested = payload.get("max_tokens")
     if isinstance(requested, int) and requested < profile["min_max_tokens"]:
         payload["max_tokens"] = profile["min_max_tokens"]
@@ -814,7 +913,19 @@ def load_learned() -> dict:
 _learned = load_learned()
 
 
+# Fields the proxy writes itself. The learner must never take one: learned
+# drops run after normalize_reasoning in rewrite(), so a single 400 naming one
+# of these would delete the key the repair had just set, on every request,
+# silently, for as long as learned.json survives.
+PROXY_OWNED_FIELDS = {"thinking", "output_config", "effort", "reasoning_effort"}
+
+
 def remember(field: str) -> None:
+    if field in PROXY_OWNED_FIELDS:
+        if field not in _warned_owned:
+            _warned_owned.add(field)
+            log(f"learned: refusing `{field}`, the proxy sets it")
+        return
     with _learned_lock:
         record = _learned.get(field)
         if record is not None:
@@ -964,6 +1075,23 @@ def signature(payload: dict, headers, raw: bytes = b"") -> str:
     if effort is not None:
         bits.append("effort=" + json.dumps(effort, sort_keys=True))
 
+    # output_config is where the reasoning tier actually travels: measured
+    # 2026-09-19, the endpoint takes output_config.effort in low/medium/high/
+    # xhigh/max and rejects anything else, while top-level `effort` and
+    # `reasoning_effort` are both unknown parameters. Without this bit the
+    # census cannot answer whether CLAUDE_CODE_EFFORT_LEVEL reaches the wire.
+    # Scalars only, so a schema or a stop-sequence string never lands in a file.
+    output_config = payload.get("output_config")
+    if isinstance(output_config, dict):
+        shown = []
+        for key in sorted(output_config):
+            value = output_config[key]
+            if isinstance(value, bool) or isinstance(value, (int, float, str)):
+                shown.append(f"{key}={value}")
+            else:
+                shown.append(key)
+        bits.append("output_config=" + ",".join(shown))
+
     for name in CENSUS_HEADERS:
         value = headers.get(name)
         if value:
@@ -1083,6 +1211,8 @@ class Handler(BaseHTTPRequestHandler):
         except (ConnectionResetError, BrokenPipeError) as exc:
             self.close_connection = True
             log(f"client-hung-up {type(exc).__name__}")
+            with _counters_lock:
+                _counters["client_hangups_total"] += 1
 
     def _send_error(self, status: int, message: str) -> None:
         payload = json.dumps(
@@ -1139,7 +1269,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def _pump_sse(self, upstream, sources: "SearchSources", initial: bytes = b"",
-                deadline=None) -> None:
+                deadline=None) -> dict:
         """Pass the stream through event by event, then append the sources block.
 
         Events are emitted whole rather than byte by byte, so the injected block can
@@ -1205,10 +1335,18 @@ class Handler(BaseHTTPRequestHandler):
                     if kind == "message_start":
                         _fold_usage_holder(usage, event.get("message"))
                         _fold_usage_holder(usage, event)
+                        _fold_stop_reason(usage, event.get("message"))
                     elif kind == "message_delta":
                         _fold_usage_holder(usage, event)
-                    elif kind == "content_block_start" and sources is not None:
-                        sources.observe(event.get("content_block") or {}, event.get("index"))
+                        _fold_stop_reason(usage, event)
+                    elif kind == "content_block_start":
+                        # Tally every stream, not only the web-search ones, and
+                        # before injection so our own sources block is not
+                        # counted as something the model produced.
+                        _tally_block(usage, event.get("content_block") or {})
+                        if sources is not None:
+                            sources.observe(event.get("content_block") or {},
+                                            event.get("index"))
                 if (sources is not None and kind in ("message_delta", "message_stop")
                         and not injected):
                     inject()
@@ -1248,10 +1386,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._chunk(raw)
             return usage
         _fold_usage_holder(usage, payload)
-        if sources is not None:
-            for index, block in enumerate(payload.get("content") or []):
-                if isinstance(block, dict):
+        _fold_stop_reason(usage, payload)
+        # Tally before injection, so the sources block the proxy appends below
+        # never counts as something the model produced.
+        for index, block in enumerate(payload.get("content") or []):
+            if isinstance(block, dict):
+                _tally_block(usage, block)
+                if sources is not None:
                     sources.observe(block, index)
+        if sources is not None:
             block = sources.block()
             if block is not None:
                 payload.setdefault("content", []).append(block)
@@ -1267,6 +1410,10 @@ class Handler(BaseHTTPRequestHandler):
             transient_retries = _counters["transient_retries_total"]
             learned_hits = _counters["learned_hits_total"]
             usage_totals = dict(_usage_totals)
+            hangups = _counters["client_hangups_total"]
+            empty_200s = _counters["empty_content_200s"]
+            no_reasoning = _counters["no_reasoning_requests_total"]
+            stop_reasons = dict(_counters["stop_reasons"])
         payload = json.dumps({
             "ok": True,
             "version": VERSION,
@@ -1278,6 +1425,10 @@ class Handler(BaseHTTPRequestHandler):
             "by_status": by_status,
             "transient_retries": transient_retries,
             "learned_hits": learned_hits,
+            "client_hangups": hangups,
+            "empty_content_200s": empty_200s,
+            "no_reasoning_requests": no_reasoning,
+            "stop_reasons": stop_reasons,
             "usage": usage_totals,
             "cooldown_until": _cooldown_until,
             "min_max_tokens": MIN_MAX_TOKENS,
@@ -1320,6 +1471,18 @@ class Handler(BaseHTTPRequestHandler):
                          if isinstance(original_payload, dict) else None)
         request_tools = (bool(original_payload.get("tools"))
                          if isinstance(original_payload, dict) else False)
+        # Named from the wire, not from the inference. This shape is Claude
+        # Code's auto-mode classifier, but all the proxy can see is that nothing
+        # in the request asked for a reasoning tier, so the endpoint picks one.
+        no_reasoning = (
+            isinstance(original_payload, dict)
+            and "thinking" not in original_payload
+            and "effort" not in original_payload
+            and not isinstance(original_payload.get("output_config"), dict)
+        )
+        if no_reasoning:
+            with _counters_lock:
+                _counters["no_reasoning_requests_total"] += 1
 
         # Two retries share this budget of upstream sends. A 400 that names a field
         # is the endpoint teaching us its subset: learn it, strip it, resend. A
@@ -1498,6 +1661,8 @@ class Handler(BaseHTTPRequestHandler):
             log(f"{rid} {self.command} {self.path} {upstream.status} "
                 f"{ms}ms attempts={attempts} client-hung-up [{full_note()}]")
             _count(upstream.status)
+            with _counters_lock:
+                _counters["client_hangups_total"] += 1
             conn.close()
             return
         finally:
@@ -1513,9 +1678,12 @@ class Handler(BaseHTTPRequestHandler):
         _count(upstream.status)
         usage_bits = " ".join(
             f"{short}={usage[key]}" for key, short in
-            (("input_tokens", "in"), ("output_tokens", "out"))
+            (("input_tokens", "in"), ("output_tokens", "out"),
+             ("thinking_tokens", "think"))
             if isinstance(usage.get(key), int)
         )
+        usage_bits = " ".join(x for x in (usage_bits, _outcome_bits(usage, no_reasoning)) if x)
+        _note_outcome(usage, upstream.status, failed)
         if failed:
             detail = bytes(captured).decode("utf8", "replace").strip()
             log(_request_line(rid, self.command, self.path, upstream.status, ms,

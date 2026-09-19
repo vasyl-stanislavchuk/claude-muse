@@ -93,6 +93,9 @@ place bin/api-key.sh    "$STATE_DIR/api-key.sh"
 place lib/preflight.sh  "$STATE_DIR/preflight.sh"
 place lib/model-env.sh  "$STATE_DIR/model-env.sh"
 place profile/statusline.sh "$PROFILE_DIR/statusline.sh"
+mkdir -p "$PROFILE_DIR/hooks"
+place profile/CLAUDE.md          "$PROFILE_DIR/CLAUDE.md"
+place profile/hooks/continue-gate "$PROFILE_DIR/hooks/continue-gate"
 say "engine installed into $STATE_DIR ($MODE)"
 
 # rewrite-rules.yaml is policy the user may edit, so it is seeded once and
@@ -123,6 +126,32 @@ else
 fi
 if grep -q '"model"' "$PROFILE_DIR/settings.json" 2>/dev/null; then
   warn "settings.json has a \"model\" key — it outranks ANTHROPIC_MODEL. Remove it."
+fi
+
+# An existing settings.json is never overwritten, so a template that grew a key
+# would otherwise reach only new installs. Name the gap; never close it.
+if [ -e "$PROFILE_DIR/settings.json" ]; then
+  drift="$("$PYTHON" - "$REPO/profile/settings.json.tmpl" "$PROFILE_DIR/settings.json" <<'PYEOF'
+import json, sys
+try:
+    tmpl = json.load(open(sys.argv[1]))
+    live = json.load(open(sys.argv[2]))
+except Exception:
+    sys.exit(0)
+missing = [k for k in tmpl if k not in live]
+t_allow = tmpl.get("permissions", {}).get("allow", [])
+l_allow = live.get("permissions", {}).get("allow", [])
+missing += [a for a in t_allow if a not in l_allow]
+t_hooks = set(tmpl.get("hooks", {}))
+l_hooks = set(live.get("hooks", {}))
+missing += sorted("hooks." + h for h in t_hooks - l_hooks)
+print(", ".join(missing))
+PYEOF
+)"
+  if [ -n "$drift" ]; then
+    warn "settings.json is missing what the template now has: $drift"
+    warn "add them by hand — this file is yours and install.sh never rewrites it"
+  fi
 fi
 
 if [ "$WITH_AGENT" = 0 ]; then

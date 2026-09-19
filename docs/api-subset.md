@@ -11,15 +11,18 @@ Measured 2026-09-19. Each row is a request Claude Code makes as a matter of cour
 | `web_search_20250305` with `max_uses: 8` (hardcoded in the binary) | `400 web_search field 'max_uses' is not supported` | WebSearch, every call |
 | `allowed_domains` / `blocked_domains` on that tool | `400 ... 'allowed_domains' is not supported` | WebSearch with domain filters |
 | `tool_choice: {type:"tool", name:"web_search"}` | `400 named 'tool_choice' is not supported` | WebSearch, even with `max_uses` gone |
-| `thinking: {type:"disabled"}` on mechanical side queries | `400 reasoning_effort 'none' is not supported` | the auto-mode permission classifier |
+| `thinking: {type:"disabled"}` on mechanical side queries | `400 reasoning_effort 'none' is not supported for model 'muse-spark-1.3'. Supported values: [minimal, low, medium, high, xhigh, max]` | nothing today, but see **Reasoning** |
 | `stop_sequences`, `safeguards`, `top_k` | `400 ... is not supported` / `unknown parameter` | the classifier again |
-| a classifier-sized `max_tokens` | `200` with `content: []` | same: Spark spends the whole budget thinking and emits nothing |
-| `POST /v1/messages/count_tokens` | `402 billing_error` | the `/context` cost panel, silently — see **Counting tokens** |
+| a classifier-sized `max_tokens` | `200` with `content: []` | the auto-mode permission classifier: Spark spends the whole budget thinking and emits nothing |
+| `effort` or `reasoning_effort` at the top level | `400 unknown parameter` | nothing; the tier travels in `output_config` instead |
+| `POST /v1/messages/count_tokens` | `402 billing_error` | the `/context` cost panel, silently — now answered locally, see **Counting tokens** |
 | `GET /v1/models` | `401` | model discovery, so the context window has to be asserted rather than read |
 
-The last two rows are why **subagents never launched**. Claude Code's auto mode asks a classifier whether a tool call is safe before running it; read-only tools are exempt, which is why `Read` and `Grep` always worked while `Agent` produced `muse-spark-1.3 is temporarily unavailable, so auto mode cannot determine the safety of Agent` every single time. The classifier is a short mechanical call, so it hit those rows and came back 400 or empty, and Claude Code reads both as "model down".
+Those rows are why **subagents never launched**. Claude Code's auto mode asks a classifier whether a tool call is safe before running it; read-only tools are exempt, which is why `Read` and `Grep` always worked while `Agent` produced `muse-spark-1.3 is temporarily unavailable, so auto mode cannot determine the safety of Agent` every single time. The classifier is a short mechanical call, so it hit those rows and came back 400 or empty, and Claude Code reads both as "model down".
 
-`proxy.py` repairs all of it: it strips the unsupported `web_search` fields, rewrites a **named** `tool_choice` to `auto`, drops `thinking: {type:"disabled"}`, raises `max_tokens` to a floor of 4096, and clamps `budget_tokens` below it.
+**Correction.** Earlier versions of this file said the classifier sends `thinking: {type:"disabled"}`. It does not. The census records its shape as `keys=max_tokens,messages,metadata,model,stop_sequences,system` with `max_tokens=2112` and no `thinking` key at all; the only `thinking=disabled` row in `shapes.json` is `probe.sh` sending one. The classifier carries **no reasoning directive**, which matters because this endpoint has no way to switch reasoning off - see below.
+
+`proxy.py` repairs all of it: it strips the unsupported `web_search` fields, rewrites a **named** `tool_choice` to `auto`, translates `thinking: {type:"disabled"}` into the cheapest tier the endpoint has, raises `max_tokens` to a floor of 4096, and clamps `budget_tokens` below it.
 
 Only the named form is rewritten. `any` and `none` pass through, because the only rejection ever measured is the named one, and forcing `none` to `auto` would turn "do not call tools" into "call tools if you like" - the proxy granting a permission rather than repairing a shape. If `any` or `none` does turn out to be rejected, the retry path drops the field instead of replacing it: absence asserts nothing, where `auto` asserts something.
 
@@ -31,6 +34,22 @@ Two things worth knowing:
 
   The limit is real: sources appear only for pages the model opened. A search it answers from result snippets alone still cites nothing, because nothing in that response identifies a page. Asking it to read a few pages is what produces citations, and that costs more - a search that opened twelve pages ran 25k input tokens against 2k for one that opened none.
 - **The `max_tokens` floor changes behaviour.** A caller that asked for 50 output tokens can now get up to 4096. That is the right trade - an over-long generated title is recoverable, an empty response is not - but it is a real effect, not a no-op.
+
+## Reasoning
+
+Measured 2026-09-19 with `bin/probe.sh` and the `usage.output_tokens_details.thinking_tokens` the endpoint reports back.
+
+**The tier travels in `output_config.effort`, and nowhere else.** A top-level `effort` or `reasoning_effort` is `400 unknown parameter`; so is `thinking.effort`. `output_config.effort` takes `low`, `medium`, `high`, `xhigh` and `max`, and rejects anything else - including `minimal`, which the `thinking: {type:"disabled"}` error lists as a valid `reasoning_effort`. That gap is the endpoint describing its internal enum rather than its public one.
+
+**`thinking.budget_tokens` does not choose a tier.** 1024, 8000 and 32000 against the same prompt returned 706, 663 and 503 thinking tokens - noise, not a trend. The budget is still validated (at least 1024, and strictly less than `max_tokens`), so the clamp stays, but it buys no reasoning. Neither does `thinking: {type:"adaptive"}`, which is what Claude Code's main loop sends.
+
+**There is no way to switch reasoning off.** `disabled` maps to `reasoning_effort 'none'`, which is rejected, and `minimal` is rejected too. The floor is `low`. A request carrying no reasoning directive at all - which is every auto-mode classifier call - gets whatever the endpoint defaults to, and that default measured as the *most* expensive shape tried: 14.7s and 696 thinking tokens against 10.3s and 431 at `low`.
+
+So the repair for `thinking: {type:"disabled"}` is a translation rather than a deletion. Deleting it is the larger intervention: it turns "do not reason" into "reason however you like". Measured through the proxy on one classifier-shaped request, translating it to `output_config: {effort: low}` took the call from **7538ms and 352 thinking tokens to 3806ms and 200**.
+
+**What the proxy does not do** is add a tier to a request that named none. That population is 9 of every 11 requests in a probe run and the majority of real traffic, and speeding it up would mean asserting a reasoning level Claude Code never asked for - the same category as answering the safety classifier on the endpoint's behalf. The `no-reasoning` token in `proxy.log` and the `no_reasoning_requests` counter in `/__health` exist so the size of that population is a number rather than a guess. The supported fix for the classifier timing out is `permissions.allow`.
+
+One caveat worth keeping: a cheaper tier can change what the classifier concludes. The proxy is not choosing the verdict, but it is changing the conditions under which Spark reaches one.
 
 ## Counting tokens
 
@@ -46,7 +65,7 @@ Two things this is *not*. It is not the status line's one-turn lag, which is a d
 
 | Symptom | Cause |
 | --- | --- |
-| `402 billing_error` | a pay-as-you-go key is in play instead of the subscription key |
+| `402 billing_error` | a pay-as-you-go key is in play instead of the subscription key. `count_tokens` is answered locally, so a `402` from it should no longer appear at all |
 | `429` / `503` from upstream | the proxy waits and resends up to 3 times, then cools down for 60s and answers `503` fast until it clears |
 | `401` + "Both ANTHROPIC_AUTH_TOKEN and apiKeyHelper set" | stale shell holding an old function definition — `exec zsh` |
 | `401`, helper prints nothing | keychain item renamed or login expired — re-run `muse login`, then check `CLAUDE_MUSE_KEYCHAIN_SERVICE` / `CLAUDE_MUSE_KEYCHAIN_ACCOUNT` |
@@ -62,7 +81,9 @@ Two things this is *not*. It is not the status line's one-turn lag, which is a d
 | a proxy.py edit seems to do nothing | the proxy holds its source in memory. Preflight restarts it on the next launch; mid-session, kickstart it |
 | `400 ... is not supported` reaches the session | a shape the proxy could not repair by name. Read `proxy.log` for the exact field and add an explicit rule |
 | a short reply comes back empty | the `max_tokens` floor is not being applied — the session is talking to `api.meta.ai` directly rather than through the proxy |
-| subagents blocked, `auto mode cannot determine the safety of` | the classifier is failing upstream. `proxy.log` names the field |
+| subagents blocked, `auto mode cannot determine the safety of` | the classifier timed out rather than refused. It carries no reasoning directive, so it pays the endpoint's default tier; `grep no-reasoning proxy.log` shows how slow. The fix is a `permissions.allow` entry, not a proxy change |
+| a tool is denied that should not be | check `permissions.allow` first. `Write`, `Edit`, `MultiEdit` and `NotebookEdit` are on it deliberately: without them every file change waits on a classifier verdict from a model that often does not answer in time |
+| responses look truncated or empty | `proxy.log` now carries `stop=` and `blocks=` per request. `blocks=none` on a 2xx is the empty-content failure, and `/__health` counts it as `empty_content_200s` |
 
 A useful first probe, since it separates endpoint problems from credential ones - `401` means the credential isn't recognized, `402` means it is but isn't billable:
 

@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# continue-gate - Stop hook. Blocks a turn that ends by asking permission to
+# carry on with work that is already approved.
+#
+# Measured from 55 muse sessions: 130 turns ended text-only, 63 of them needed
+# the user to type something, and 25 carried asking-permission language. The
+# worst of them was "Say the word and I'll start executing from Step 0",
+# answered with "go".
+#
+# Exit 0 = let the turn end, one line on stdout.
+# Exit 2 = block, Claude Code feeds stderr back to the model.
+#
+# Never blocks while background work is in flight: a turn that ends waiting on
+# a subagent is correct, and a task notification wakes the session. Bounded at
+# MAX_BLOCKS per episode, because a gate that cannot give up is a hang.
+set -uo pipefail
+
+MAX_BLOCKS=2
+STATE_DIR="${CLAUDE_MUSE_DIR:-$HOME/.config/claude-muse}/continue-gate"
+
+INPUT=""
+[ -t 0 ] || INPUT="$(cat)"
+[ -n "$INPUT" ] || { echo "continue-gate: no hook input, allowing."; exit 0; }
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "continue-gate: jq not found, allowing." >&2
+  echo "continue-gate: jq not found, allowing."
+  exit 0
+fi
+
+# Scalars in one pass. The message is fetched separately rather than squeezed
+# into the same line, because it is the one field that carries spaces.
+read -r REENTRY TASKS CRONS SESSION < <(
+  printf '%s' "$INPUT" | jq -r '
+    [ (.stop_hook_active // false | tostring),
+      (.background_tasks // [] | length | tostring),
+      (.session_crons // [] | length | tostring),
+      (.session_id // "unknown")
+    ] | @tsv' 2>/dev/null | tr '\t' ' '
+) || true
+
+# jq failed or gave us nothing usable: fail open, the same as every other
+# absence in this script.
+[ -n "${REENTRY:-}" ] || { echo "continue-gate: unreadable hook input, allowing."; exit 0; }
+
+MESSAGE="$(printf '%s' "$INPUT" | jq -r '(.last_assistant_message // "") | gsub("\\s+"; " ")' 2>/dev/null)"
+
+_key() {
+  printf '%s' "$SESSION" | shasum -a 256 2>/dev/null | cut -c1-32 \
+    || printf '%s' "$SESSION" | cut -c1-32
+}
+COUNTER="$STATE_DIR/$(_key)"
+
+# A first entry starts a fresh episode.
+if [ "$REENTRY" != "true" ]; then
+  rm -f "$COUNTER" 2>/dev/null || true
+fi
+
+if [ "$TASKS" != "0" ] || [ "$CRONS" != "0" ]; then
+  echo "continue-gate: $TASKS background task(s), $CRONS scheduled wakeup(s) in flight, allowing."
+  exit 0
+fi
+
+if [ -z "$MESSAGE" ]; then
+  echo "continue-gate: no assistant message to read, allowing."
+  exit 0
+fi
+
+# Drawn from the 25 measured occurrences. Deliberately narrow: every pattern is
+# a request for permission to continue, not a question about substance.
+ASKING='(say the word|just say when|want me to|shall i|should i (go|proceed|start|continue)|would you like me to|let me know (if|once|when|whether)|ready to (proceed|start|begin|implement|execute)|say the word and)'
+
+if ! printf '%s' "$MESSAGE" | grep -Eiq "$ASKING"; then
+  echo "continue-gate: turn did not end asking to continue, allowing."
+  exit 0
+fi
+
+COUNT="$(cat "$COUNTER" 2>/dev/null || echo 0)"
+case "$COUNT" in
+  ''|*[!0-9]*) COUNT=0 ;;
+esac
+
+# At the bound, give up for the rest of this episode. The counter is NOT
+# cleared here: clearing it would let the very next re-entry start blocking
+# again, which is the hang this bound exists to prevent. A fresh episode
+# (stop_hook_active false) resets it above.
+if [ "$COUNT" -ge "$MAX_BLOCKS" ]; then
+  echo "continue-gate: allowing after $MAX_BLOCKS blocks; the turn still ends by asking to continue."
+  exit 0
+fi
+
+mkdir -p "$STATE_DIR" 2>/dev/null || true
+find "$STATE_DIR" -type f -mtime +1 -delete 2>/dev/null || true
+echo $((COUNT + 1)) >"$COUNTER"
+
+cat >&2 <<'MSG'
+You ended the turn asking whether to continue. You already have the go-ahead.
+
+Take the next step now. If the work is genuinely finished, say so plainly
+without a question. If a decision is really the user's to make, call
+AskUserQuestion - asking in prose ends the turn, asking with the tool does not.
+MSG
+exit 2

@@ -7,7 +7,7 @@ Why the pieces sit where they do. In short: the shell function holds only what n
 - **No `model` in `settings.json`.** A settings-file model pin outranks `ANTHROPIC_MODEL`. Both `~/.claude/settings.json` and the shelestni profile pin `"model": "opus[1m]"`, which is why muse needs its own profile rather than sharing one.
 - **`unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN`** in the function. Either would outrank `apiKeyHelper`; Claude Code warns and auth fails with `401`.
 - **`CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000`.** `muse-spark-1.3` isn't in this Claude Code version's model catalog, so it assumes a 200k window and auto-compacts at a fifth of the real one.
-- **`CLAUDE_CODE_EFFORT_LEVEL=max`.** The only persistent route to `max` reasoning - `effortLevel`/`modelSettings` in settings.json accept `low`..`xhigh` only. The Meta Anthropic-compatible endpoint honors the `thinking` block (verified 2026-09-17: `redacted_thinking` + output) and maps it onto Spark effort tiers; an unsupported level degrades to the highest supported one, never errors.
+- **`CLAUDE_CODE_EFFORT_LEVEL=max`.** The only persistent route to `max` reasoning - `effortLevel`/`modelSettings` in settings.json accept `low`..`xhigh` only. The endpoint takes the tier in `output_config.effort` and accepts `max` there (measured 2026-09-19, along with `low`/`medium`/`high`/`xhigh`; `minimal` and a top-level `effort` are both rejected). The census records `output_config` so the question of whether this setting reaches the wire is answered by looking rather than by arguing; `docs/api-subset.md` has the full measurement.
 
 ## Why the logic is not in the function
 
@@ -31,12 +31,27 @@ Auto mode runs a classifier over actions like shell commands before they run. Si
 
 `preflight.sh` sets `CLAUDE_CODE_AUTO_MODE_SERVER=0`, which tells Claude Code not to ask, so there is no doomed round trip and nothing is held. `/status` shows this as **Auto mode server: Disabled**, which is correct and expected here.
 
-**What that does not change is who judges.** The fallback classifier runs on `muse-spark-1.3`, because it is the only model this endpoint serves. Verdicts are therefore Spark's, and they are less consistent than Claude Code's usual classifier - the occasional refusal of an ordinary command is that, not a bug in the proxy. Two honest ways to deal with it:
+**What that does not change is who judges.** The fallback classifier runs on `muse-spark-1.3`, because it is the only model this endpoint serves. Verdicts are therefore Spark's, and they are less consistent than Claude Code's usual classifier - the occasional refusal of an ordinary command is that, not a bug in the proxy.
 
-- **Name the commands you trust.** `permissions.allow` in the profile's `settings.json` takes entries like `Bash(git status:*)`, `Bash(make:*)`, `Bash(uv run pytest:*)`. This is the mechanism Claude Code provides for exactly this, and it is specific rather than blanket.
+**Mostly, though, it does not refuse. It runs out of time.** Of 44 denials measured across two days of transcripts, all but one read `muse-spark-1.3 is temporarily unavailable (timed out)`, not a verdict. The reason is in the shape: the classifier sends no reasoning directive, this endpoint has no setting for "do not reason", and its default tier is the slowest one measured. Classifier round trips ran a median of 2.7s and a p90 of 60.4s, and the classifier is a little over half of all requests. Claude Code gives up well before the p90 and denies the tool.
+
+That is why `permissions.allow` carries `Write`, `Edit`, `MultiEdit` and `NotebookEdit` as well as the `Bash(...)` entries. An allowed tool never reaches the classifier, so it cannot be denied by a timeout. Without them a long task dies the same way every time: the model loses the ability to write files and degrades into handing you heredocs to paste. Three honest ways to deal with a denial:
+
+- **Name what you trust.** `permissions.allow` takes tool names and entries like `Bash(git status:*)`. Specific rather than blanket, and the mechanism Claude Code provides for exactly this.
 - **Leave auto mode** for that session with `Shift+Tab`, which drops to a mode with no classifier in the path at all.
+- **Read `proxy.log`.** A `no-reasoning` line with a high `ms=` is the classifier being slow; `/__health` counts how much of your traffic that is.
 
-What the proxy will not do is answer the classifier on the endpoint's behalf. It repairs request *shapes* the endpoint cannot parse; manufacturing a safety verdict is a different thing, it would apply silently to every future session, and the two mechanisms above are both supported and visible.
+What the proxy will not do is answer the classifier on the endpoint's behalf, or quietly make its calls cheaper by asserting a reasoning tier the client never asked for. It repairs request *shapes* the endpoint cannot parse; the rest would apply silently to every future session, and the mechanisms above are supported and visible.
+
+## Continuing a long task
+
+A model that ends its turn with "say the word and I'll start" costs a round trip and reads as laziness. Measured across the same transcripts, 63 turns ended in a way that needed the user to type something, and 25 of those were asking for permission to carry on with work already approved. A good share of them were downstream of the denials above: a model that cannot write files has nothing left to do but ask.
+
+Two things address the remainder, both in the profile rather than the proxy. `profile/CLAUDE.md` is loaded into every muse session and says plainly that an approved plan is the go-ahead and that a decision only the user can make belongs in `AskUserQuestion`, which keeps the turn alive, rather than in prose, which ends it. `profile/hooks/continue-gate` is a `Stop` hook that enforces it: when a turn ends asking to continue, it blocks once with that reminder, and Claude Code feeds the text back to the model.
+
+The hook is deliberately timid. It reads `background_tasks` and `session_crons` from the hook input and allows whenever either is non-empty, because a turn that ends waiting on a subagent is correct and a notification will wake it. It matches a narrow list of phrases rather than guessing at intent. It gives up after two blocks in an episode, because a gate that cannot give up is a hang. And it fails open on every absence - no `jq`, no input, unparseable input.
+
+Doing this at the proxy was considered and rejected. Detecting "the model asked a question" and injecting a continuation would manufacture conversation, and it would apply to every future session with nothing in the transcript to show for it.
 
 ## The context readout
 
@@ -56,7 +71,7 @@ An earlier version of this file blamed the lag on `count_tokens` returning `402`
 
 Headers are captured from an allowlist - `anthropic-beta`, `anthropic-version`, `accept` - so the credential is excluded by construction rather than by remembering to filter it.
 
-It exists because most questions about this setup are settled by looking at the wire rather than by reasoning about the binary: whether `CLAUDE_CODE_EFFORT_LEVEL=max` puts an `effort` key on the request or is inert, which beta tokens leave the client, whether `cache_control` is ever sent, what `max_tokens` the main loop carries. One session answers all of them, for free.
+It exists because most questions about this setup are settled by looking at the wire rather than by reasoning about the binary: whether `CLAUDE_CODE_EFFORT_LEVEL=max` reaches the request or is inert, which beta tokens leave the client, whether `cache_control` is ever sent, what `max_tokens` the main loop carries. One session answers all of them, for free. It records `output_config` field by field for the first of those, and it is what showed the auto-mode classifier sends no reasoning directive at all - which is not what this file used to say.
 
 ## Repair rules
 

@@ -43,3 +43,12 @@ models:
     min_thinking_budget: 1024
     drop_thinking_disabled: true
     clamp_budget: true
+    # What to send instead of `thinking: {type: disabled}`, which the endpoint
+    # rejects with `reasoning_effort 'none' is not supported ... Supported
+    # values: [minimal, low, medium, high, xhigh, max]`. Measured 2026-09-19:
+    # output_config.effort takes all of those except `minimal`, so `low` is the
+    # least reasoning this endpoint will do. Deleting the block instead would
+    # turn "do not reason" into "reason however you like".
+    # Set to null to go back to deleting it; drop_thinking_disabled then applies.
+    thinking_disabled_as:
+      output_config: {effort: low}

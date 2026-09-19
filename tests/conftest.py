@@ -49,6 +49,10 @@ def clean_state(proxy, tmp_path, monkeypatch):
             proxy._counters["by_status"][key] = 0
         proxy._counters["transient_retries_total"] = 0
         proxy._counters["learned_hits_total"] = 0
+        proxy._counters["client_hangups_total"] = 0
+        proxy._counters["empty_content_200s"] = 0
+        proxy._counters["no_reasoning_requests_total"] = 0
+        proxy._counters["stop_reasons"].clear()
         proxy._usage_totals["input_tokens"] = 0
         proxy._usage_totals["output_tokens"] = 0
         proxy._ratio_samples.clear()
@@ -60,6 +64,7 @@ def clean_state(proxy, tmp_path, monkeypatch):
     monkeypatch.setattr(proxy, "_PROFILES", copy.deepcopy(proxy.BAKED_IN_PROFILES))
     monkeypatch.setattr(proxy, "_warned_ops", set())
     monkeypatch.setattr(proxy, "_warned_models", set())
+    monkeypatch.setattr(proxy, "_warned_owned", set())
     return proxy
 
 

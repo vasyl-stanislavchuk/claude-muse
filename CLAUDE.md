@@ -50,7 +50,7 @@ Say what you ran. "The rewrite rules pass offline; the paid probe runs on the ne
 
 ## Constraints
 
-- **Python 3.9, standard library only.** The launch agent runs `/usr/bin/python3`, which is 3.9.6. No third-party imports, no `match`, no runtime `X | Y`.
+- **Python 3.9, standard library only.** The launch agent runs `/usr/bin/python3`, which is 3.9.6. No `match`, no runtime `X | Y`. One exception, and it has to stay one: `pyyaml`, imported behind a `try` so the proxy falls back to the baked-in rules without it. A dependency that cannot be absent is not allowed here. `pytest` is dev-only and never imported by the engine.
 - **Never read or log the credential.** `x-api-key` is forwarded as received. The key stays in the keychain, and nothing here caches it.
 - **Repair shapes, never manufacture a verdict.** The proxy fixes requests the endpoint cannot parse. Answering the auto-mode safety classifier on the endpoint's behalf is a different thing, it would apply silently to every future session, and `permissions.allow` already exists for it.
 - **`settings.json` must never gain a `model` key.** A settings model pin outranks `ANTHROPIC_MODEL` and would send every request to Anthropic on a Meta key. `install.sh` warns if one appears.

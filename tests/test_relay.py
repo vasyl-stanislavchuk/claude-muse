@@ -440,7 +440,7 @@ def test_relay_reports_json_usage_in_the_line(relay, clean_state, tmp_path):
     response, _ = relay(raw, [ok(reply)])
     assert response.startswith(b"HTTP/1.1 200 ")
     match = LINE.search((tmp_path / "proxy.log").read_text())
-    assert match and match.group(5).strip() == "in=100 out=20"
+    assert match and match.group(5).strip() == "in=100 out=20 stop=end_turn blocks=text:1 no-reasoning"
     assert "model-substitution" not in (tmp_path / "proxy.log").read_text()
     assert clean_state._usage_totals == {"input_tokens": 100, "output_tokens": 20}
     assert list(clean_state._ratio_samples) == [(len(raw), 100)]
@@ -466,7 +466,7 @@ def test_relay_reads_sse_usage_without_sources(relay, clean_state, tmp_path):
     assert response.startswith(b"HTTP/1.1 200 ")
     assert b"web_search_tool_result" not in response  # observed, not injected
     match = LINE.search((tmp_path / "proxy.log").read_text())
-    assert match and match.group(5).strip() == "in=300 out=45"
+    assert match and match.group(5).strip() == "in=300 out=45 blocks=none no-reasoning"
 
 
 def test_relay_sse_usage_takes_the_last_delta(relay, clean_state, tmp_path):
@@ -533,3 +533,108 @@ def test_relay_ignores_count_tokens_gets(relay, clean_state):
                            path="/v1/messages/count_tokens", command="GET")
     assert response.startswith(b"HTTP/1.1 404 ")
     assert len(sent) == 1  # only POST is served locally
+
+
+# --- outcome observability -------------------------------------------------
+
+
+def test_relay_flags_an_empty_content_200(relay, clean_state, tmp_path):
+    # The failure the max_tokens floor exists to prevent. Nothing proved it had
+    # stopped happening, because nothing counted it.
+    raw = json.dumps({"model": "muse-spark-1.3", "max_tokens": 4096, "messages": []}).encode()
+    relay(raw, [ok({"content": [], "stop_reason": "max_tokens",
+                    "usage": {"input_tokens": 9, "output_tokens": 200}})])
+    match = LINE.search((tmp_path / "proxy.log").read_text())
+    assert match and "stop=max_tokens blocks=none" in match.group(5)
+    assert clean_state._counters["empty_content_200s"] == 1
+    assert clean_state._counters["stop_reasons"] == {"max_tokens": 1}
+
+
+def test_relay_tallies_mixed_blocks(relay, clean_state, tmp_path):
+    raw = json.dumps({"model": "muse-spark-1.3", "max_tokens": 4096, "messages": []}).encode()
+    relay(raw, [ok({"stop_reason": "tool_use", "content": [
+        {"type": "text", "text": "a"},
+        {"type": "thinking", "thinking": "b"},
+        {"type": "tool_use", "id": "1", "name": "x", "input": {}},
+        {"type": "tool_use", "id": "2", "name": "y", "input": {}},
+    ]})])
+    match = LINE.search((tmp_path / "proxy.log").read_text())
+    assert match and "stop=tool_use blocks=text:1,thinking:1,tool_use:2" in match.group(5)
+    assert clean_state._counters["empty_content_200s"] == 0
+
+
+def test_relay_does_not_tally_the_injected_sources_block(relay, clean_state, tmp_path):
+    # The proxy's own web_search_tool_result must not read as model output.
+    raw = json.dumps({
+        "model": "muse-spark-1.3", "max_tokens": 4096, "messages": [],
+        "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+    }).encode()
+    reply = {"stop_reason": "end_turn", "content": [
+        {"type": "server_tool_use", "id": "s1", "name": "web_search",
+         "input": {"type": "open_page", "url": "https://example.com/a"}},
+        {"type": "text", "text": "done"},
+    ]}
+    response, _ = relay(raw, [ok(reply)])
+    assert b"web_search_tool_result" in response
+    match = LINE.search((tmp_path / "proxy.log").read_text())
+    assert match and "blocks=server_tool_use:1,text:1" in match.group(5)
+
+
+def test_relay_counts_the_no_reasoning_shape(relay, clean_state, tmp_path):
+    bare = json.dumps({"model": "muse-spark-1.3", "max_tokens": 4096, "messages": []}).encode()
+    relay(bare, [ok(TEXT_REPLY)])
+    assert clean_state._counters["no_reasoning_requests_total"] == 1
+
+    # A request that names a tier is not the classifier shape, whichever of the
+    # two spellings it uses.
+    with_effort = json.dumps({"model": "muse-spark-1.3", "max_tokens": 4096,
+                              "messages": [], "output_config": {"effort": "max"}}).encode()
+    relay(with_effort, [ok(TEXT_REPLY)])
+    thinking = json.dumps({"model": "muse-spark-1.3", "max_tokens": 40000,
+                           "messages": [], "thinking": {"type": "adaptive"}}).encode()
+    relay(thinking, [ok(TEXT_REPLY)])
+    assert clean_state._counters["no_reasoning_requests_total"] == 1
+
+
+def test_relay_reports_thinking_tokens(relay, clean_state, tmp_path):
+    raw = json.dumps({"model": "muse-spark-1.3", "max_tokens": 40000, "messages": [],
+                      "thinking": {"type": "adaptive"}}).encode()
+    relay(raw, [ok(dict(TEXT_REPLY, usage={
+        "input_tokens": 47, "output_tokens": 903,
+        "output_tokens_details": {"thinking_tokens": 706}}))])
+    match = LINE.search((tmp_path / "proxy.log").read_text())
+    assert match and "in=47 out=903 think=706" in match.group(5)
+
+
+def test_relay_sse_tallies_blocks_and_stop_reason(relay, clean_state, tmp_path):
+    raw = json.dumps({"model": "muse-spark-1.3", "max_tokens": 4096, "messages": []}).encode()
+    stream = (
+        sse_event({"type": "message_start",
+                   "message": {"type": "message", "model": "muse-spark-1.3",
+                               "stop_reason": None,
+                               "usage": {"input_tokens": 10, "output_tokens": 0}}})
+        + sse_event({"type": "content_block_start", "index": 0,
+                     "content_block": {"type": "thinking", "thinking": ""}})
+        + sse_event({"type": "content_block_start", "index": 1,
+                     "content_block": {"type": "text", "text": ""}})
+        + sse_event({"type": "message_delta", "delta": {"stop_reason": "end_turn"},
+                     "usage": {"output_tokens": 12}})
+        + sse_event({"type": "message_stop"})
+    )
+    relay(raw, [(200, stream, "text/event-stream")])
+    match = LINE.search((tmp_path / "proxy.log").read_text())
+    # message_start carries stop_reason null; the delta's value must survive it.
+    assert match and "stop=end_turn blocks=text:1,thinking:1" in match.group(5)
+    assert clean_state._counters["empty_content_200s"] == 0
+
+
+def test_health_reports_the_outcome_counters(relay, clean_state):
+    raw = json.dumps({"model": "muse-spark-1.3", "max_tokens": 4096, "messages": []}).encode()
+    relay(raw, [ok(TEXT_REPLY)])
+    response, _ = relay(b"", [(200, b"", "application/json")],
+                        path="/__health", command="GET")
+    health = json.loads(response.partition(b"\r\n\r\n")[2])
+    assert health["stop_reasons"] == {"end_turn": 1}
+    assert health["empty_content_200s"] == 0
+    assert health["no_reasoning_requests"] == 1
+    assert health["client_hangups"] == 0
