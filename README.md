@@ -19,7 +19,7 @@ The failures are not the kind you can read. A rejected `max_uses` takes out web 
 Requires macOS, Claude Code, `jq`, and Meta's `muse` CLI already logged in (`muse login`).
 
 ```bash
-git clone git@github.com:trymedallion/claude-muse.git ~/projects/claude-muse
+git clone git@github.com:vasyl-stanislavchuk/claude-muse.git ~/projects/claude-muse
 cd ~/projects/claude-muse
 ./install.sh --check          # verify the environment first
 ./install.sh
@@ -65,6 +65,6 @@ claude-muse -p "Reply with exactly: ok"                 # ok
 
 ## Scope
 
-This is Medallion-internal tooling, not a supported product. It tracks two moving targets — Claude Code releases and the endpoint's subset — and the learn-and-retry mechanism exists precisely because the second one is not documented anywhere.
+This is internal tooling, not a supported product. It tracks two moving targets — Claude Code releases and the endpoint's subset — and the learn-and-retry mechanism exists precisely because the second one is not documented anywhere.
 
 Nothing here is Meta-specific except `bin/api-key.sh`, the model ids in the shell function, and the defaults at the top of `bin/proxy.py`. Pointing it at a different Anthropic-compatible endpoint is a matter of changing those.
