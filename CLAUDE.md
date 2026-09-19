@@ -17,10 +17,11 @@ Read [`docs/design.md`](docs/design.md) before changing where a piece lives, and
 
 ## Editing the repo is editing the install
 
-`install.sh` symlinks `bin/` and `lib/` into `~/.config/claude-muse`, so a change here is live at the next launch with nothing to copy. Two consequences worth holding onto:
+`install.sh` symlinks `bin/` and `lib/` into `~/.config/claude-muse`, so a change here is live at the next launch with nothing to copy. `.githooks/` re-runs it on every commit, pull and branch switch, which matters because `install.sh` names each file explicitly: **a new file needs a `place` line, and without one it is never linked no matter how many times the hook fires.** Three consequences worth holding onto:
 
 - **The running proxy holds its source in memory.** An edited `proxy.py` does nothing until the proxy restarts. `preflight.sh` compares the running proxy's hash against the file and restarts it, which is the difference between a fix landing and a fix appearing to land.
 - **Every `proxy.py` edit costs a probe.** The hash moves, so the next launch spends two real API calls proving the repairs still work. That runs about 28 seconds, almost all of it the web search call. Batching proxy changes is cheaper than trickling them.
+- **`settings.json` is yours, so nothing rewrites it.** The template grows keys over time and the rendered file never gets them; `install.sh` names what is missing and leaves the merge to you. The hook surfaces that notice on every commit, which is the only reason you will hear about drift at all.
 
 **Never restart the proxy while a session is using it.** `install.sh --no-agent` places files and leaves launchd alone.
 

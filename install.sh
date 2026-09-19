@@ -154,6 +154,19 @@ PYEOF
   fi
 fi
 
+# Point git at the tracked hooks, so a commit or a pull re-links the install
+# without anyone remembering to. Local config, never pushed; harmless outside a
+# checkout, and left alone if you have pointed hooksPath somewhere of your own.
+if [ -d "$REPO/.git" ] && [ -d "$REPO/.githooks" ] && command -v git >/dev/null 2>&1; then
+  current="$(git -C "$REPO" config --local --get core.hooksPath 2>/dev/null || true)"
+  if [ -z "$current" ]; then
+    git -C "$REPO" config --local core.hooksPath .githooks
+    say "git hooks enabled — commits and pulls now re-link the install"
+  elif [ "$current" != ".githooks" ]; then
+    warn "core.hooksPath is $current, leaving it alone; .githooks/ is not active"
+  fi
+fi
+
 if [ "$WITH_AGENT" = 0 ]; then
   say "--no-agent: skipping the launch agent and the health check"
   say "files are in place; start the proxy yourself with $PYTHON $STATE_DIR/proxy.py"

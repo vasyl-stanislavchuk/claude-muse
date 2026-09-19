@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# $3 is 1 for a branch checkout, 0 when a single file was checked out. Only a
+# branch change can move the installed files.
+[ "${3:-0}" = "1" ] || exit 0
+exec "$(dirname "$0")/sync-install"

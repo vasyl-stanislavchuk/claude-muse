@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **The install keeps itself in step with the repo.** A commit, a pull or a branch switch re-links it, so a file added to the repo no longer waits for you to remember `install.sh`. The running proxy is left alone on purpose: restarting it would cut off whatever session is mid-request, and your next launch picks up the new code anyway.
+
 ## [0.2.0] - 2026-09-19
 
 ### Added

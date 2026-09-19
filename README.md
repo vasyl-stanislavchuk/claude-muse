@@ -38,7 +38,7 @@ exec zsh
 claude-muse
 ```
 
-`install.sh` is idempotent - re-run it after a `git pull`. By default it symlinks the engine into `~/.config/claude-muse`, so editing the repo *is* editing the install and preflight notices on the next launch. `--copy` freezes copies instead. It never overwrites an existing `settings.json`, and anything it does replace is backed up under `~/.config/claude-muse/.backups/`.
+`install.sh` is idempotent, and after the first run you rarely invoke it by hand: it points git at `.githooks/`, so a commit, a pull or a branch switch re-links the install for you. By default it symlinks the engine into `~/.config/claude-muse`, so editing the repo *is* editing the install and preflight notices on the next launch. `--copy` freezes copies instead. It never overwrites an existing `settings.json`, and anything it does replace is backed up under `~/.config/claude-muse/.backups/`.
 
 `./uninstall.sh` removes the agent and the engine; `--purge` also removes the state. Neither touches your session history.
 
