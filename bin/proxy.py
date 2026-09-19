@@ -225,7 +225,7 @@ def load_shapes() -> set[str]:
 _shapes = load_shapes()
 
 
-def signature(payload: dict, headers) -> str:
+def signature(payload: dict, headers, raw: bytes = b"") -> str:
     """One line per distinct request shape, so knob decisions are measured.
 
     Answers, for free, questions that are otherwise guesswork: does
@@ -240,10 +240,12 @@ def signature(payload: dict, headers) -> str:
     if types:
         bits.append("tools=" + ",".join(types))
 
-    blob = json.dumps(payload)
-    if '"cache_control"' in blob:
+    # Substring-search the body as received rather than re-serializing it. These
+    # requests carry up to a 1M-token context, so a dumps() per request to find
+    # two markers was real latency for nothing.
+    if b'"cache_control"' in raw:
         bits.append("cache_control")
-    if '"type": "image"' in blob or '"type":"image"' in blob:
+    if b'"type": "image"' in raw or b'"type":"image"' in raw:
         bits.append("image")
 
     bits.append(f"max_tokens={payload.get('max_tokens')}")
@@ -267,9 +269,9 @@ def signature(payload: dict, headers) -> str:
     return " ".join(bits)
 
 
-def census(payload: dict, headers) -> None:
+def census(payload: dict, headers, raw: bytes = b"") -> None:
     try:
-        sig = signature(payload, headers)
+        sig = signature(payload, headers, raw)
     except Exception as exc:  # a census must never break a request
         log(f"census-error {type(exc).__name__}: {exc}")
         return
@@ -517,7 +519,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if rewritable:
             try:
-                census(json.loads(original), self.headers)
+                census(json.loads(original), self.headers, original)
             except (ValueError, UnicodeDecodeError):
                 pass
 
