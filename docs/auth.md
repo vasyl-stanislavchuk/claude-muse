@@ -16,6 +16,12 @@ So the key exists in exactly one place - the keychain. Nothing is copied into a 
 
 **Subscription vs pay-as-you-go matters.** The keys you can mint in the console at `https://dev.meta.ai` are pay-as-you-go and return `402 billing_error` until a payment method is attached. Only the `Muse Code` key - the one `muse login` provisions, which the console shows as created by you - bills against the subscription. Don't swap the helper out for a console key.
 
+## Overrides
+
+The keychain item's location is configurable for the day it moves: `CLAUDE_MUSE_KEYCHAIN_SERVICE` and `CLAUDE_MUSE_KEYCHAIN_ACCOUNT` repoint the lookup, defaulting to `ai.meta.dev.credentials` / `meta`. Export them where the shell function runs and the helper follows.
+
+`CLAUDE_MUSE_API_KEY_FILE` names a file holding the bare key, tried only when the keychain misses. It must be readable only by you (`chmod 600`); anything looser is refused. This exists for second-account testing and for riding out a keychain outage, not as a second home for the key - the path may appear in errors, the key never does.
+
 ## Notes
 
 - The muse CLI's own config is separate: `~/.config/muse/{auth.json,settings.json}`. `auth.json` holds no secret - it records `"storage": "keychain"` and points at the item above.

@@ -38,7 +38,7 @@ Claude Code asks `POST /v1/messages/count_tokens` to build the **Projected token
 
 Nothing appears to break, and that is the problem. Claude Code's fallback when the call fails is `Math.ceil(JSON.stringify({system, messages, tools}).length / 4)` - a flat four-characters-per-token guess, applied silently. So the panel is not empty, it is **confidently approximate**, with no indication that the number never came from a tokenizer. Claude Code does print *"Token counts are estimates and may differ from actual usage"* next to it, which is true but does not distinguish a measured estimate from a fallback one.
 
-Replacing that guess with a ratio calibrated against this endpoint's own `usage` blocks is the open work. It is worth doing precisely because the bar is so low: anything measured beats `chars/4`.
+The proxy now serves that call itself, replacing the guess with a ratio calibrated against this endpoint's own `usage` blocks: every tool-less `/v1/messages` response teaches it characters-per-token, pooled over recent traffic and checkpointed to `calibration.json`. Responses to tool-using requests don't teach it - their input count folds in whatever the model went and read, which no estimate made beforehand could know. Anything measured beats `chars/4`, and the bar was that low. It stays an estimate - the log line says `estimated` with the ratio and sample count behind the number, and the status line never eats it, because that numerator is real.
 
 Two things this is *not*. It is not the status line's one-turn lag, which is a different code path - see **The context readout**. And it is not a case for feeding an estimate into the status line, whose numerator is real and should stay that way.
 
@@ -49,12 +49,12 @@ Two things this is *not*. It is not the status line's one-turn lag, which is a d
 | `402 billing_error` | a pay-as-you-go key is in play instead of the subscription key |
 | `429` / `503` from upstream | the proxy waits and resends up to 3 times, then cools down for 60s and answers `503` fast until it clears |
 | `401` + "Both ANTHROPIC_AUTH_TOKEN and apiKeyHelper set" | stale shell holding an old function definition — `exec zsh` |
-| `401`, helper prints nothing | keychain item renamed or login expired — re-run `muse login`, then check the `service`/`account` hardcoded in `api-key.sh` |
+| `401`, helper prints nothing | keychain item renamed or login expired — re-run `muse login`, then check `CLAUDE_MUSE_KEYCHAIN_SERVICE` / `CLAUDE_MUSE_KEYCHAIN_ACCOUNT` |
 | context compacts far too early | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` lost from the function |
 | every request fails, nothing in `proxy.log` | the proxy is down — preflight should have started it; check `proxy.err` |
 | anything at all in `proxy.err` | a genuine crash. The two files stopped being duplicates, so this one is signal now |
-| `/context` numbers look implausible | the count is Claude Code's `chars/4` fallback, not a measurement — see **Counting tokens** |
-| a field is being stripped that the endpoint now supports | `learned.json` holds 100 entries and only grows to there. Remove the entry by hand and restart the proxy |
+| `/context` numbers look implausible | the count is the proxy's calibrated estimate, not a tokenizer fact - `proxy.log` shows the ratio and sample count behind it |
+| a field is being stripped that the endpoint now supports | `learned.json` holds 100 entries and only grows to there. Remove the entry by hand; the proxy picks it up on the next request |
 | `bash` looks blocked in auto mode, once, early | the held "auto mode isn't eligible" notice. `CLAUDE_CODE_AUTO_MODE_SERVER=0` in preflight prevents it; if you see it, a shell predating that change is in play |
 | auto mode refuses an ordinary command | a genuine verdict from `muse-spark-1.3`, which is the fallback classifier here. Add a `Bash(...)` allow rule for it, or leave auto mode with `Shift+Tab` |
 | status line says `direct — relaunch` | the launching shell predates the current function. Quit the session and start a new one from a fresh shell; `exec zsh` will not fix a running session |

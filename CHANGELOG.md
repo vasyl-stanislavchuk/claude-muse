@@ -13,6 +13,18 @@
 ### Changed
 
 - **State files are written atomically and capped** at 100 learned fields and 500 shapes, and each learned field records when it was first seen and how often it has fired.
+- **Repair policy now lives in `rewrite-rules.yaml`.** New endpoint quirks are fixed by editing data instead of code, take effect on the next request without a restart, and never cost a re-probe; per-model reasoning values live in the same file.
+- **Overloads embedded in streams retry like the 429s they behave as.** The proxy holds response headers for the first event-group - bounded at 32KB and 5s - so a 200-embedded overload can still wait and resend invisibly; anything vaguer passes through untouched.
+- **Timeouts are split by phase.** Connecting fails fast at 10s, accepted streams may run long on a 600s stall budget, and a 3600s wall clock (`CLAUDE_MUSE_STREAM_TIMEOUT`) cuts true runaways.
+- **Policy and learned state reload without a restart.** Hand edits to `rewrite-rules.yaml` or `learned.json` land on the next request; the proxy's own writes stay silent.
+- **`count_tokens` is served locally from a calibrated estimate.** Every tool-less response teaches the proxy characters-per-token, so `/context` cost panels beat the old silent `chars/4` fallback; the log line shows the ratio and sample count behind each number.
+- **The proxy reads usage and model from every response.** The log line carries `in=`/`out=` token counts, `/__health` reports running totals, and a served model that differs from the requested one is logged as a substitution.
+- **The keychain lookup is configurable.** `CLAUDE_MUSE_KEYCHAIN_SERVICE` / `CLAUDE_MUSE_KEYCHAIN_ACCOUNT` repoint it when the item moves, and `CLAUDE_MUSE_API_KEY_FILE` names a 0600 fallback file tried only when the keychain misses.
+
+### Fixed
+
+- **An empty JSON response body no longer corrupts chunk framing.** It used to emit a second stream terminator mid-response.
+- **A keychain item without `.api_key` no longer authenticates as the literal string "null".** It now falls through to the file fallback or a clear error.
 
 ## [0.1.0] - 2026-09-19
 

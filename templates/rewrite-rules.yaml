@@ -1,0 +1,45 @@
+# Static repair rules for bin/proxy.py. Each rule names the models it applies to
+# (fnmatch globs against the request's model; "*" matches everything including a
+# missing model, and is the default when `models` is absent). Scope a rule down
+# to one model, e.g. ["muse-spark-*"], the day a second model needs different
+# repairs; until then every rule here applies to all traffic, exactly as the old
+# hardcoded repairs did.
+#
+# Ops: drop_fields removes fields from each holder dict; replace swaps a whole
+# value when it matches `when`; drop_if deletes a key whose value equals
+# `equals`; floor raises a small int; clamp_below keeps a value under another
+# key; set_value forces a value on an existing key (it never adds a key the
+# client never sent). Unknown ops are ignored with a log line, and a malformed
+# file falls back to the baked-in rules, so a typo here can never fail a
+# request. Edit freely; the proxy picks up changes without a restart.
+#
+# 4096 clears the 1024 thinking-budget floor plus real output; a classifier-sized
+# max_tokens of 200 measured empty because Spark spends the whole budget thinking
+# before it emits anything.
+version: 1
+rules:
+  - models: ["*"]
+    path: tools[]
+    where: {type: {startswith: web_search_}}
+    op: drop_fields
+    fields: [max_uses, allowed_domains, blocked_domains]
+    note: "-{field}"
+  # Only the named form is mapped: `any` and `none` pass through, because the
+  # only rejection ever measured is the named one, and forcing `none` to `auto`
+  # would turn "do not call tools" into "call tools if you like". If either is
+  # in fact rejected, the retry path drops the key instead of replacing it.
+  - models: ["*"]
+    path: tool_choice
+    op: replace
+    when: {type: tool}
+    value: {type: auto}
+    note: "tool_choice {old}->{new}"
+# Per-model reasoning values, read by the thinking/max_tokens pipeline. Keys are
+# fnmatch globs against the request's model; the first match wins, and a model
+# matching nothing gets conservative built-in defaults with a log line.
+models:
+  "muse-spark-*":
+    min_max_tokens: 4096
+    min_thinking_budget: 1024
+    drop_thinking_disabled: true
+    clamp_budget: true

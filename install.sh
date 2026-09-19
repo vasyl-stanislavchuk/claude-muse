@@ -95,6 +95,22 @@ place lib/model-env.sh  "$STATE_DIR/model-env.sh"
 place profile/statusline.sh "$PROFILE_DIR/statusline.sh"
 say "engine installed into $STATE_DIR ($MODE)"
 
+# rewrite-rules.yaml is policy the user may edit, so it is seeded once and
+# thereafter left alone like settings.json. A future version bump will need an
+# upgrade path that preserves edits; version 1 has no predecessor to migrate.
+if [ -e "$STATE_DIR/rewrite-rules.yaml" ]; then
+  say "rewrite-rules.yaml exists — left as is (template: templates/rewrite-rules.yaml)"
+else
+  place templates/rewrite-rules.yaml "$STATE_DIR/rewrite-rules.yaml"
+  say "wrote $STATE_DIR/rewrite-rules.yaml"
+fi
+
+# The proxy reads that file with pyyaml and falls back to baked-in rules without
+# it. Best effort: a missing pip or no network must never fail the install.
+"$PYTHON" -c 'import yaml' 2>/dev/null \
+  || "$PYTHON" -m pip install --user --quiet --disable-pip-version-check pyyaml >/dev/null 2>&1 \
+  || warn "pyyaml is missing for $PYTHON — the proxy uses baked-in rules until it is installed"
+
 # settings.json carries the user's own permissions.allow list, so it is written
 # once and thereafter left alone. A settings model pin would outrank
 # ANTHROPIC_MODEL, which is why the template has no "model" key and why this

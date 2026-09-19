@@ -8,6 +8,7 @@ tmp_path so a test run never touches ~/.config.
 """
 
 import importlib.util
+import copy
 import io
 import sys
 from pathlib import Path
@@ -38,15 +39,27 @@ def clean_state(proxy, tmp_path, monkeypatch):
     monkeypatch.setattr(proxy, "LOG", str(log))
     monkeypatch.setattr(proxy, "LEARNED", str(tmp_path / "learned.json"))
     monkeypatch.setattr(proxy, "SHAPES", str(tmp_path / "shapes.json"))
+    monkeypatch.setattr(proxy, "RULES", str(tmp_path / "rewrite-rules.yaml"))
+    monkeypatch.setattr(proxy, "CALIBRATION", str(tmp_path / "calibration.json"))
+    monkeypatch.setattr(proxy, "_calibration", {"chars": 0, "tokens": 0, "samples": 0})
+    monkeypatch.setattr(proxy, "_policy_mtimes", {})
     with proxy._counters_lock:
         proxy._counters["requests_total"] = 0
         for key in proxy._counters["by_status"]:
             proxy._counters["by_status"][key] = 0
         proxy._counters["transient_retries_total"] = 0
         proxy._counters["learned_hits_total"] = 0
+        proxy._usage_totals["input_tokens"] = 0
+        proxy._usage_totals["output_tokens"] = 0
+        proxy._ratio_samples.clear()
     monkeypatch.setattr(proxy, "MAX_RETRY_INTERVAL", 30.0)
     monkeypatch.setattr(proxy, "TRANSIENT_COOLDOWN", 60.0)
+    monkeypatch.setattr(proxy, "STREAM_TIMEOUT", 3600.0)
     monkeypatch.setattr(proxy, "_cooldown_until", None)
+    monkeypatch.setattr(proxy, "_RULES", copy.deepcopy(proxy.BAKED_IN_RULES))
+    monkeypatch.setattr(proxy, "_PROFILES", copy.deepcopy(proxy.BAKED_IN_PROFILES))
+    monkeypatch.setattr(proxy, "_warned_ops", set())
+    monkeypatch.setattr(proxy, "_warned_models", set())
     return proxy
 
 
@@ -77,6 +90,8 @@ class FakeUpstream:
 
 
 class FakeConn:
+    sock = None  # no real socket, so the bootstrap skips its timeout dance
+
     def close(self):
         pass
 

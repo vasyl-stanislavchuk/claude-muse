@@ -38,6 +38,7 @@ claude-muse
 | --- | --- |
 | `~/.config/claude-muse/` | the engine, symlinked from this repo, plus runtime state |
 | `~/.config/claude-muse/learned.json` | fields the proxy taught itself to drop, added as it meets them |
+| `~/.config/claude-muse/rewrite-rules.yaml` | the repair policy: which shapes the proxy rewrites, editable without touching code |
 | `~/.config/claude-muse/shapes.json` | every distinct request shape Claude Code has sent, recorded once each |
 | `~/.config/claude-muse/proxy.log` | every rewrite and every upstream error. First place to look. Rotates at 1 MiB |
 | `~/.config/claude-muse/proxy.err` | empty unless the proxy crashed. A byte in here is a finding |

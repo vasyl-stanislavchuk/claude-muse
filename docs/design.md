@@ -58,3 +58,9 @@ Headers are captured from an allowlist - `anthropic-beta`, `anthropic-version`, 
 
 It exists because most questions about this setup are settled by looking at the wire rather than by reasoning about the binary: whether `CLAUDE_CODE_EFFORT_LEVEL=max` puts an `effort` key on the request or is inert, which beta tokens leave the client, whether `cache_control` is ever sent, what `max_tokens` the main loop carries. One session answers all of them, for free.
 
+## Repair rules
+
+`rewrite-rules.yaml` is the repair policy as data: which shapes the proxy rewrites, in which order, for which models. Editing it changes behavior without touching `proxy.py`, which matters because the file's hash is what preflight watches - a policy tweak costs no re-probe, while a code edit costs two paid calls.
+
+The shape of it - declarative match-and-mutate rules with model wildcards - is borrowed from CLIProxyAPI's `payload` rules (router-for-me/CLIProxyAPI, MIT), cut down to six ops. Per-model reasoning values (the `max_tokens` floor, the thinking budget) live in the same file under `models:`, read by one fixed pipeline rather than by rules, because those normalizations only make sense together. What the proxy does when the file is missing, malformed, or pyyaml is absent is always the same: fall back to the baked-in copy and say so in `proxy.log`. A typo in policy degrades to no repair, never to a failed request.
+
