@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-19
+
 ### Added
 
 - **The proxy now rides out rate limits and brief outages.** A 429, 503 or dropped connection waits and resends up to 3 times, honoring the server's `Retry-After`, and the proxy cools down for 60s and answers `503` fast when the upstream stays down.
@@ -34,7 +36,7 @@
 - **The proxy can no longer learn away its own repairs.** A rejection naming a field the proxy sets itself is refused rather than recorded, which used to be able to silently undo a repair on every later request.
 - **An abandoned request is counted as one.** A session that gives up waiting used to be indistinguishable from one that was served.
 - **A slow first token no longer loses the request.** The proxy used to arm a short socket timeout while it peeked at the start of a stream, which left the connection unreadable for good once it fired. Since this model thinks for several seconds before it says anything, that was the common case, not the rare one; the peek now waits without touching the socket.
-- **An upstream that stops mid-response is reported rather than dropped.** You get what arrived and a `upstream-cut` line saying why it is short, instead of a stack trace and a lost reply.
+- **An upstream that stops mid-response is reported rather than dropped.** You get what arrived and an `upstream-cut` line saying why it is short, instead of a stack trace and a lost reply.
 
 ## [0.1.0] - 2026-09-19
 
