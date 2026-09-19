@@ -638,3 +638,79 @@ def test_health_reports_the_outcome_counters(relay, clean_state):
     assert health["empty_content_200s"] == 0
     assert health["no_reasoning_requests"] == 1
     assert health["client_hangups"] == 0
+
+
+# --- bootstrap peek must not poison the stream -----------------------------
+
+
+def test_bootstrap_peek_never_arms_a_socket_timeout(proxy, clean_state, monkeypatch):
+    """A slow first token must leave the response object readable.
+
+    Arming a socket timeout for the peek poisons CPython's buffered reader: the
+    read that times out is fine, but every later read raises `OSError: cannot
+    read from timed out object`, so the stream that followed died and the
+    request was lost. proxy.log showed it as `handler-error`.
+    """
+    import socket as _socket
+
+    monkeypatch.setattr(proxy, "BOOTSTRAP_TIMEOUT", 0.05)
+    left, right = _socket.socketpair()          # local, and never written to
+    armed = []
+
+    class WatchedSock:
+        """Selectable, and records any attempt to arm a timeout."""
+
+        def fileno(self):
+            return left.fileno()
+
+        def settimeout(self, t):
+            armed.append(t)
+
+    try:
+        class Conn:
+            sock = WatchedSock()
+
+            def close(self):
+                pass
+
+        body = sse_event({"type": "message_start",
+                          "message": {"type": "message", "usage": {"input_tokens": 1}}})
+        from conftest import FakeUpstream
+        upstream = FakeUpstream(200, body, "text/event-stream")
+
+        prefix = proxy._read_sse_prefix(Conn(), upstream)
+
+        assert armed == [], f"peek armed a socket timeout: {armed}"
+        # Nothing was readable inside the window, so the peek yields nothing and
+        # leaves the whole stream for the pump to read normally.
+        assert prefix == b""
+        assert upstream.read(-1) == body
+    finally:
+        left.close()
+        right.close()
+
+
+def test_pump_sse_survives_an_upstream_that_dies_mid_stream(proxy, clean_state, tmp_path):
+    """An upstream read failing after headers commit is logged, not raised."""
+    class DyingUpstream:
+        def __init__(self):
+            self._first = True
+
+        def read(self, n=-1):
+            if self._first:
+                self._first = False
+                return sse_event({"type": "message_start",
+                                  "message": {"type": "message",
+                                              "usage": {"input_tokens": 7}}})
+            raise OSError("cannot read from timed out object")
+
+    handler = proxy.Handler.__new__(proxy.Handler)
+    sent = []
+    handler._chunk = sent.append
+
+    usage = proxy.Handler._pump_sse(handler, DyingUpstream(), None)
+
+    assert usage.get("input_tokens") == 7     # what did arrive is kept
+    assert sent, "the bytes read before the cut are still served"
+    log = (tmp_path / "proxy.log").read_text()
+    assert "upstream-cut" in log

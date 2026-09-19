@@ -72,6 +72,7 @@ Two things this is *not*. It is not the status line's one-turn lag, which is a d
 | context compacts far too early | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` lost from the function |
 | every request fails, nothing in `proxy.log` | the proxy is down — preflight should have started it; check `proxy.err` |
 | anything at all in `proxy.err` | a genuine crash. The two files stopped being duplicates, so this one is signal now |
+| `upstream-cut` in `proxy.log` | the upstream stopped sending after headers were committed. What arrived is served; there is nothing to retry into at that point |
 | `/context` numbers look implausible | the count is the proxy's calibrated estimate, not a tokenizer fact - `proxy.log` shows the ratio and sample count behind it |
 | a field is being stripped that the endpoint now supports | `learned.json` holds 100 entries and only grows to there. Remove the entry by hand; the proxy picks it up on the next request |
 | `bash` looks blocked in auto mode, once, early | the held "auto mode isn't eligible" notice. `CLAUDE_CODE_AUTO_MODE_SERVER=0` in preflight prevents it; if you see it, a shell predating that change is in play |

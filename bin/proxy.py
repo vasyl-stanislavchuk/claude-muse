@@ -20,6 +20,7 @@ import math
 import os
 import random
 import re
+import select
 import sys
 import hashlib
 import threading
@@ -321,25 +322,40 @@ def _read_sse_prefix(conn, upstream) -> bytes:
     """The stream's first event-group, read before headers commit.
 
     Lets a 200-embedded overload error retry like the 429 it behaves as. Bounded
-    by group end, byte cap, or a short socket timeout, whichever comes first; a
-    slow upstream simply proceeds to stream with whatever arrived.
+    by group end, byte cap, or a short wait, whichever comes first; a slow
+    upstream simply proceeds to stream with whatever arrived.
     """
     prefix = bytearray()
     sock = conn.sock
-    if sock is not None:
-        sock.settimeout(BOOTSTRAP_TIMEOUT)
-    try:
-        while b"\n\n" not in prefix and len(prefix) < BOOTSTRAP_MAX_BYTES:
-            try:
-                chunk = upstream.read(min(8192, BOOTSTRAP_MAX_BYTES - len(prefix)))
-            except OSError:
-                break
-            if not chunk:
-                break
-            prefix += chunk
-    finally:
+    deadline = time.monotonic() + BOOTSTRAP_TIMEOUT
+    # Wait with select rather than a socket timeout. A read that times out
+    # poisons CPython's buffered reader for good - every later read raises
+    # `cannot read from timed out object` - so arming one here used to kill the
+    # stream it was supposed to protect. Spark reasons for seconds before the
+    # first token, which made that the common case rather than the rare one.
+    while b"\n\n" not in prefix and len(prefix) < BOOTSTRAP_MAX_BYTES:
         if sock is not None:
-            sock.settimeout(READ_TIMEOUT)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                ready, _, _ = select.select([sock], [], [], remaining)
+            except (OSError, ValueError, TypeError):
+                # Closed, or not something select can wait on. Either way the
+                # peek is optional: fall through and let the pump stream it.
+                break
+            if not ready:
+                break  # slow first token: stream it normally, socket untouched
+        want = min(8192, BOOTSTRAP_MAX_BYTES - len(prefix))
+        try:
+            # read1 returns what has arrived; read would block for the full
+            # count and undo the point of selecting first.
+            chunk = upstream.read1(want) if hasattr(upstream, "read1") else upstream.read(want)
+        except OSError:
+            break
+        if not chunk:
+            break
+        prefix += chunk
     return bytes(prefix)
 
 
@@ -1351,7 +1367,13 @@ class Handler(BaseHTTPRequestHandler):
                         and not injected):
                     inject()
                 flush_group()
-            chunk = upstream.read(8192)
+            try:
+                chunk = upstream.read(8192)
+            except OSError as exc:
+                # Headers are already committed, so there is nothing to retry
+                # into. Serve what arrived and say why it is short.
+                log(f"upstream-cut {type(exc).__name__}: {exc}")
+                break
             if not chunk:
                 break
             buf += chunk
@@ -1373,7 +1395,11 @@ class Handler(BaseHTTPRequestHandler):
         while True:
             if _deadline_hit(deadline):
                 break
-            chunk = upstream.read(65536)
+            try:
+                chunk = upstream.read(65536)
+            except OSError as exc:
+                log(f"upstream-cut {type(exc).__name__}: {exc}")
+                break
             if not chunk:
                 break
             raw += chunk
