@@ -41,6 +41,15 @@ def test_every_installed_file_is_placed():
     assert not missing, f"add a `place` line for: {missing}"
 
 
+def test_every_profile_skill_is_placed():
+    """A new profile skill fails here until it gets a `place_skill` line."""
+    text = (REPO / "install.sh").read_text()
+    placed = set(re.findall(r"^place_skill (\S+)", text, re.M))
+    expected = {p.name for p in (REPO / "profile" / "skills").iterdir() if p.is_dir()}
+    missing = sorted(expected - placed)
+    assert not missing, f"add a `place_skill` line for: {missing}"
+
+
 def test_settings_template_has_no_model_key():
     """A settings model pin would outrank ANTHROPIC_MODEL (see install.sh)."""
     tmpl = json.loads((REPO / "profile" / "settings.json.tmpl").read_text())

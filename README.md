@@ -57,6 +57,7 @@ claude-muse
 | `~/.claude-profiles/muse/` | the Claude Code profile: settings, sessions, history |
 | `~/.claude-profiles/muse/CLAUDE.md` | how the model should behave in a muse session, symlinked from this repo |
 | `~/.claude-profiles/muse/hooks/continue-gate` | a `Stop` hook that blocks a turn ending by asking permission to continue |
+| `~/.claude-profiles/muse/skills/review-learned` | the learned-state review skill, symlinked from this repo; run it with `/review-learned` |
 | `~/Library/LaunchAgents/co.medallion.claude-muse-proxy.plist` | keeps the proxy up across reboots |
 
 Runtime state stays out of the repo. The one thing worth knowing about the profile: it has **no `model` key on purpose**, because a settings-file model pin outranks `ANTHROPIC_MODEL` and would quietly send every request to Anthropic on a Meta key.
@@ -78,6 +79,7 @@ claude-muse -p "Reply with exactly: ok"                 # ok
 - [`docs/api-subset.md`](docs/api-subset.md) - what the endpoint implements, what it rejects, and what breaks when it does. Includes the troubleshooting table.
 - [`docs/design.md`](docs/design.md) - why the logic is not in the shell function, how auto mode degrades, what the context readout can and cannot tell you.
 - [`docs/auth.md`](docs/auth.md) - how the subscription key is resolved, and why a console key will not work.
+- [`docs/promotion.md`](docs/promotion.md) - when learned state earns a review, and what each verdict costs.
 
 ## Scope
 

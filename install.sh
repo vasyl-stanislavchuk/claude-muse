@@ -84,6 +84,20 @@ place_dir() {  # place_dir() <repo-relative source dir> <destination>
   if [ "$MODE" = link ]; then ln -s "$src" "$dest"; else cp -Rp "$src" "$dest"; fi
 }
 
+place_skill() {  # place_skill() <skill name>; never clobbers a user skill
+  local name="$1"
+  local src="$REPO/profile/skills/$name" dest="$PROFILE_DIR/skills/$name"
+  [ -d "$src" ] || fail "missing from repo: profile/skills/$name"
+  if [ -e "$dest" ] || [ -L "$dest" ]; then
+    if [ -L "$dest" ] && [ "$(readlink "$dest")" = "$src" ] && [ "$MODE" = link ]; then
+      return 0                   # already correct, leave it alone
+    fi
+    warn "skills/$name exists and is not this repo's link — leaving it alone"
+    return 0
+  fi
+  place_dir "profile/skills/$name" "$dest"
+}
+
 render() {    # render() <template> <destination>; never clobbers silently
   local out
   out="$(sed -e "s|__STATE_DIR__|$STATE_DIR|g" \
@@ -109,6 +123,8 @@ place profile/statusline.sh "$PROFILE_DIR/statusline.sh"
 mkdir -p "$PROFILE_DIR/hooks"
 place profile/CLAUDE.md          "$PROFILE_DIR/CLAUDE.md"
 place profile/hooks/continue-gate "$PROFILE_DIR/hooks/continue-gate"
+mkdir -p "$PROFILE_DIR/skills"
+place_skill review-learned
 say "engine installed into $STATE_DIR ($MODE)"
 
 # rewrite-rules.yaml is policy the user may edit, so it is seeded once and

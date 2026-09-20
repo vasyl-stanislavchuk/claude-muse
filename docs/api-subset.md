@@ -26,7 +26,7 @@ The engine repairs all of it: it strips the unsupported `web_search` fields, rew
 
 Only the named form is rewritten. `any` and `none` pass through, because the only rejection ever measured is the named one, and forcing `none` to `auto` would turn "do not call tools" into "call tools if you like" - the proxy granting a permission rather than repairing a shape. If `any` or `none` does turn out to be rejected, the retry path drops the field instead of replacing it: absence asserts nothing, where `auto` asserts something.
 
-**It learns the rest.** A `400` that names a field in backticks is the endpoint describing its own subset, so the proxy records the name, first sighting and hit count in `learned.json`, strips it and retries - before anything reaches Claude Code, so the only visible cost is one slow request the first time a gap appears. `stop_sequences`, `safeguards` and `top_k` were all found this way rather than by hand. [D3](architecture.md#d3) draws the learn-and-retry loop it feeds.
+**It learns the rest.** A `400` that names a field in backticks is the endpoint describing its own subset, so the proxy records the name, first sighting and hit count in `learned.json`, strips it and retries - before anything reaches Claude Code, so the only visible cost is one slow request the first time a gap appears. `stop_sequences`, `safeguards` and `top_k` were all found this way rather than by hand. [D3](architecture.md#d3) draws the learn-and-retry loop it feeds. Turning a find like this into repo policy is the [promotion flow](promotion.md).
 
 Two things worth knowing:
 
@@ -74,7 +74,7 @@ Two things this is *not*. It is not the status line's one-turn lag, which is a d
 | anything at all in `proxy.err` | a genuine crash. The two files stopped being duplicates, so this one is signal now |
 | `upstream-cut` in `proxy.log` | the upstream stopped sending after headers were committed. What arrived is served; there is nothing to retry into at that point |
 | `/context` numbers look implausible | the count is the proxy's calibrated estimate, not a tokenizer fact - `proxy.log` shows the ratio and sample count behind it |
-| a field is being stripped that the endpoint now supports | `learned.json` holds 100 entries and only grows to there. Remove the entry by hand; the proxy picks it up on the next request |
+| a field is being stripped that the endpoint now supports | `learned.json` holds 100 entries and only grows to there. Remove the entry by hand as [promotion.md](promotion.md#pruning-an-entry) describes; the proxy picks it up on the next request |
 | `bash` looks blocked in auto mode, once, early | the held "auto mode isn't eligible" notice. `CLAUDE_CODE_AUTO_MODE_SERVER=0` in preflight prevents it; if you see it, a shell predating that change is in play |
 | auto mode refuses an ordinary command | a genuine verdict from `muse-spark-1.3`, which is the fallback classifier here. Add a `Bash(...)` allow rule for it, or leave auto mode with `Shift+Tab` |
 | status line says `direct — relaunch` | the launching shell predates the current function. Quit the session and start a new one from a fresh shell; `exec zsh` will not fix a running session |
