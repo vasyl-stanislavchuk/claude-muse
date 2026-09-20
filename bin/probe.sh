@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Replays the request shapes that decide whether claude-muse works.
 # Usage: probe.sh [base-url]   default https://api.meta.ai (the raw endpoint)
-# Against the raw endpoint five of these fail, one returns empty text and the last
-# finds no sources. Against the proxy all nine pass.
+# Against the raw endpoint six of these fail, one returns empty text and the last
+# finds no sources. Against the proxy all ten pass.
 #
 # Every row prints wall time, because for the reasoning rows latency IS the
 # finding: a 200 that takes 60s is what makes Claude Code's auto-mode classifier
@@ -65,6 +65,9 @@ run "tool_choice named"     "{$M,\"max_tokens\":4096,\"tool_choice\":{\"type\":\
 run "tool_choice any"       "{$M,\"max_tokens\":4096,\"tool_choice\":{\"type\":\"any\"},$S,$WS}]}"
 run "thinking disabled"     "{$M,\"max_tokens\":4096,\"thinking\":{\"type\":\"disabled\"},$Q}"
 run "max_tokens 200"        "{$M,\"max_tokens\":200,$Q}"
+# Already seeded, so the proxy strips it before the endpoint can name it and
+# the probe teaches nothing: that is why this row rides with the main rows.
+run "stop_sequences"        "{$M,\"max_tokens\":4096,\"stop_sequences\":[\"done\"],$Q}"
 
 # Reasoning rows. Raw endpoint only: see the note at the top of this file.
 if [ "$BASE" = "${BASE#http://127.0.0.1}" ] && [ "$BASE" = "${BASE#http://localhost}" ]; then

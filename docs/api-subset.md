@@ -12,7 +12,8 @@ Measured 2026-09-19. Each row is a request Claude Code makes as a matter of cour
 | `allowed_domains` / `blocked_domains` on that tool | `400 ... 'allowed_domains' is not supported` | WebSearch with domain filters |
 | `tool_choice: {type:"tool", name:"web_search"}` | `400 named 'tool_choice' is not supported` | WebSearch, even with `max_uses` gone |
 | `thinking: {type:"disabled"}` on mechanical side queries | `400 reasoning_effort 'none' is not supported for model 'muse-spark-1.3'. Supported values: [minimal, low, medium, high, xhigh, max]` | nothing today, but see **Reasoning** |
-| `stop_sequences`, `safeguards`, `top_k` | `400 ... is not supported` / `unknown parameter` | the classifier again |
+| `stop_sequences` on the classifier call | `400 'stop_sequences' is not supported` | the classifier again |
+| `safeguards`, `top_k` | `400 unknown parameter` / `... is not supported` | the same call |
 | a classifier-sized `max_tokens` | `200` with `content: []` | the auto-mode permission classifier: Spark spends the whole budget thinking and emits nothing |
 | `effort` or `reasoning_effort` at the top level | `400 unknown parameter` | nothing; the tier travels in `output_config` instead |
 | `POST /v1/messages/count_tokens` | `402 billing_error` | the `/context` cost panel, silently — now answered locally, see **Counting tokens** |
@@ -26,7 +27,7 @@ The engine repairs all of it: it strips the unsupported `web_search` fields, rew
 
 Only the named form is rewritten. `any` and `none` pass through, because the only rejection ever measured is the named one, and forcing `none` to `auto` would turn "do not call tools" into "call tools if you like" - the proxy granting a permission rather than repairing a shape. If `any` or `none` does turn out to be rejected, the retry path drops the field instead of replacing it: absence asserts nothing, where `auto` asserts something.
 
-**It learns the rest.** A `400` that names a field in backticks is the endpoint describing its own subset, so the proxy records the name, first sighting and hit count in `learned.json`, strips it and retries - before anything reaches Claude Code, so the only visible cost is one slow request the first time a gap appears. `stop_sequences`, `safeguards` and `top_k` were all found this way rather than by hand. [D3](architecture.md#d3) draws the learn-and-retry loop it feeds. Turning a find like this into repo policy is the [promotion flow](promotion.md).
+**It learns the rest.** A `400` that names a field in backticks is the endpoint describing its own subset, so the proxy records the name, first sighting and hit count in `learned.json`, strips it and retries - before anything reaches Claude Code, so the only visible cost is one slow request the first time a gap appears. `stop_sequences`, `safeguards` and `top_k` were all found this way rather than by hand. [D3](architecture.md#d3) draws the learn-and-retry loop it feeds. Turning a find like this into repo policy is the [promotion flow](promotion.md). `stop_sequences` has since graduated to a seeded drop with a probe row behind it; the other two stay learned until a review says otherwise.
 
 Two things worth knowing:
 

@@ -81,6 +81,16 @@ def test_rewrite_drops_learned_fields(clean_state):
     assert notes == ["-stop_sequences"]
 
 
+def test_rewrite_strips_seeded_stop_sequences(clean_state):
+    # Promoted policy, not learned state: the seed was already in _learned
+    # before the request arrived, no 400 taught this test anything.
+    assert "stop_sequences" in clean_state._learned
+    payload = {"max_tokens": 4096, "stop_sequences": ["x"], "messages": []}
+    out, notes = clean_state.rewrite(body(payload))
+    assert "stop_sequences" not in json.loads(out)
+    assert notes == ["-stop_sequences"]
+
+
 # rewrite: tool_choice
 
 
