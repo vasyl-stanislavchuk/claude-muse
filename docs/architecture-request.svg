@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1112 432" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="d1-title d1-desc">
+  <title id="d1-title">Request lifecycle: seven stages per request</title>
+  <desc id="d1-desc">Every request passes reload, short-circuit check, rewrite, census, relay, pump, and post stages; local paths answer without upstream and only the relay loop talks to the network.</desc>
+  <defs>
+    <style>@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap');</style>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#5a6b85"/></marker>
+    <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2941f3"/></marker>
+    <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#0f7f76"/></marker>
+  </defs>
+
+  <rect width="100%" height="100%" fill="#fbfcfe"/>
+
+  <!-- ============ arrows (before boxes) ============ -->
+  <!-- main pipeline -->
+  <line x1="160" y1="188" x2="192" y2="188" stroke="#5a6b85" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <line x1="312" y1="188" x2="344" y2="188" stroke="#5a6b85" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <rect x="314" y="168" width="28" height="12" rx="2" fill="#fbfcfe"/>
+  <text x="328" y="177" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">NO</text>
+  <line x1="464" y1="188" x2="496" y2="188" stroke="#5a6b85" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <line x1="616" y1="188" x2="648" y2="188" stroke="#5a6b85" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <line x1="768" y1="188" x2="800" y2="188" stroke="#2941f3" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+  <line x1="920" y1="188" x2="952" y2="188" stroke="#5a6b85" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+  <!-- local exit -->
+  <line x1="252" y1="216" x2="252" y2="256" stroke="#5a6b85" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <rect x="218" y="230" width="28" height="12" rx="2" fill="#fbfcfe"/>
+  <text x="232" y="239" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">YES</text>
+
+  <!-- client entry -->
+  <line x1="100" y1="256" x2="100" y2="216" stroke="#5a6b85" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <rect x="46" y="230" width="48" height="12" rx="2" fill="#fbfcfe"/>
+  <text x="70" y="239" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">REQUEST</text>
+
+  <!-- response returns to the client -->
+  <path d="M 1012,216 V 352 Q 1012,360 1004,360 H 108 Q 100,360 100,352 V 312" fill="none" stroke="#5a6b85" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <rect x="528" y="340" width="56" height="12" rx="2" fill="#fbfcfe"/>
+  <text x="556" y="349" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">RESPONSE</text>
+
+  <!-- side annotation under census -->
+  <text x="556" y="244" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">tallies no_reasoning when tier-less</text>
+
+  <!-- ============ nodes ============ -->
+  <!-- 1 reload -->
+  <rect x="40" y="160" width="120" height="56" rx="6" fill="#fbfcfe"/>
+  <rect x="40" y="160" width="120" height="56" rx="6" fill="#ffffff" stroke="#5a6b85" stroke-width="1"/>
+  <rect x="48" y="166" width="20" height="12" rx="2" fill="transparent" stroke="rgba(90,107,133,0.40)" stroke-width="0.8"/>
+  <text x="58" y="175" fill="rgba(90,107,133,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">1</text>
+  <text x="100" y="192" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Reload policy</text>
+  <text x="100" y="208" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">hot-reload</text>
+
+  <!-- 2 short-circuit -->
+  <rect x="192" y="160" width="120" height="56" rx="6" fill="#fbfcfe"/>
+  <rect x="192" y="160" width="120" height="56" rx="6" fill="#ffffff" stroke="#5a6b85" stroke-width="1"/>
+  <rect x="200" y="166" width="20" height="12" rx="2" fill="transparent" stroke="rgba(90,107,133,0.40)" stroke-width="0.8"/>
+  <text x="210" y="175" fill="rgba(90,107,133,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">2</text>
+  <text x="252" y="192" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Short-circuit?</text>
+  <text x="252" y="208" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">health · tokens</text>
+
+  <!-- 3 rewrite -->
+  <rect x="344" y="160" width="120" height="72" rx="6" fill="#fbfcfe"/>
+  <rect x="344" y="160" width="120" height="72" rx="6" fill="#ffffff" stroke="#5a6b85" stroke-width="1"/>
+  <rect x="352" y="166" width="20" height="12" rx="2" fill="transparent" stroke="rgba(90,107,133,0.40)" stroke-width="0.8"/>
+  <text x="362" y="175" fill="rgba(90,107,133,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">3</text>
+  <text x="404" y="192" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">rewrite()</text>
+  <text x="404" y="208" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">4 layers</text>
+  <text x="404" y="224" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">detail in D2</text>
+
+  <!-- 4 census -->
+  <rect x="496" y="160" width="120" height="56" rx="6" fill="#fbfcfe"/>
+  <rect x="496" y="160" width="120" height="56" rx="6" fill="#ffffff" stroke="#5a6b85" stroke-width="1"/>
+  <rect x="504" y="166" width="20" height="12" rx="2" fill="transparent" stroke="rgba(90,107,133,0.40)" stroke-width="0.8"/>
+  <text x="514" y="175" fill="rgba(90,107,133,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">4</text>
+  <text x="556" y="192" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Census</text>
+  <text x="556" y="208" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">shape line</text>
+
+  <!-- 5 relay (focal) -->
+  <rect x="648" y="160" width="120" height="72" rx="6" fill="#fbfcfe"/>
+  <rect x="648" y="160" width="120" height="72" rx="6" fill="rgba(41,65,243,0.10)" stroke="#2941f3" stroke-width="1.5"/>
+  <rect x="656" y="166" width="20" height="12" rx="2" fill="transparent" stroke="rgba(41,65,243,0.40)" stroke-width="0.8"/>
+  <text x="666" y="175" fill="rgba(41,65,243,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">5</text>
+  <text x="708" y="192" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Relay loop</text>
+  <text x="708" y="208" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">talks upstream</text>
+  <text x="708" y="224" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">detail in D3</text>
+
+  <!-- 6 pump -->
+  <rect x="800" y="160" width="120" height="56" rx="6" fill="#fbfcfe"/>
+  <rect x="800" y="160" width="120" height="56" rx="6" fill="#ffffff" stroke="#5a6b85" stroke-width="1"/>
+  <rect x="808" y="166" width="20" height="12" rx="2" fill="transparent" stroke="rgba(90,107,133,0.40)" stroke-width="0.8"/>
+  <text x="818" y="175" fill="rgba(90,107,133,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">6</text>
+  <text x="860" y="192" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Pump</text>
+  <text x="860" y="208" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">SSE · JSON</text>
+
+  <!-- 7 post -->
+  <rect x="952" y="160" width="120" height="56" rx="6" fill="#fbfcfe"/>
+  <rect x="952" y="160" width="120" height="56" rx="6" fill="#ffffff" stroke="#5a6b85" stroke-width="1"/>
+  <rect x="960" y="166" width="20" height="12" rx="2" fill="transparent" stroke="rgba(90,107,133,0.40)" stroke-width="0.8"/>
+  <text x="970" y="175" fill="rgba(90,107,133,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">7</text>
+  <text x="1012" y="192" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Post</text>
+  <text x="1012" y="208" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">usage · log</text>
+
+  <!-- local answer endpoint -->
+  <rect x="192" y="256" width="160" height="72" rx="6" fill="#fbfcfe"/>
+  <rect x="192" y="256" width="160" height="72" rx="6" fill="#ffffff" stroke="#5a6b85" stroke-width="1"/>
+  <rect x="200" y="262" width="28" height="12" rx="2" fill="transparent" stroke="rgba(90,107,133,0.40)" stroke-width="0.8"/>
+  <text x="214" y="271" fill="rgba(90,107,133,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EXIT</text>
+  <text x="272" y="288" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Answered here</text>
+  <text x="272" y="304" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">__health · count_tokens</text>
+  <text x="272" y="320" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">zero upstream</text>
+
+  <!-- client stub -->
+  <rect x="40" y="256" width="120" height="56" rx="6" fill="#fbfcfe"/>
+  <rect x="40" y="256" width="120" height="56" rx="6" fill="#ffffff" stroke="#7888a0" stroke-width="1"/>
+  <rect x="48" y="262" width="20" height="12" rx="2" fill="transparent" stroke="rgba(120,136,160,0.50)" stroke-width="0.8"/>
+  <text x="58" y="271" fill="rgba(90,107,133,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">IO</text>
+  <text x="100" y="288" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Claude Code</text>
+  <text x="100" y="304" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">sends · receives</text>
+
+  <!-- ============ legend reminder ============ -->
+  <line x1="40" y1="392" x2="1072" y2="392" stroke="rgba(9,22,40,0.12)" stroke-width="0.8"/>
+  <line x1="40" y1="408" x2="64" y2="408" stroke="#5a6b85" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <text x="72" y="411" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">FORWARD</text>
+  <line x1="180" y1="408" x2="204" y2="408" stroke="#5a6b85" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="212" y="411" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">RETURN</text>
+  <rect x="300" y="402" width="12" height="12" rx="2" fill="rgba(41,65,243,0.10)" stroke="#2941f3" stroke-width="1.5"/>
+  <text x="318" y="411" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">FOCAL</text>
+</svg>

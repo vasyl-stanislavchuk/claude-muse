@@ -14,7 +14,9 @@ Your existing `claude` is untouched. `claude-muse` is a separate shell function 
 
 Three things are deliberately not repaired: the classifier above, `count_tokens` (answered from a calibrated estimate, never a tokenizer fact), and web-search sources (reconstructed only for pages the model actually opened). Each is labeled where it appears rather than quietly smoothed over.
 
-![claude-muse architecture: Claude Code sends requests to a local proxy that repairs the shapes Meta's endpoint rejects, learns new ones from its errors, retries transient failures and records every response, before forwarding to api.meta.ai.](docs/architecture.svg)
+![One localhost hop between Claude Code and muse-spark: requests are repaired, retried and recorded, and responses return to Claude Code.](docs/architecture.svg)
+
+That figure is the first of five: [the architecture gallery](docs/architecture.html) walks from system context down to the retry policy.
 
 ## Why a proxy is involved
 

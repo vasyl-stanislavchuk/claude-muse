@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1024 528" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="d2-title d2-desc">
+  <title id="d2-title">Repair internals: four layers, data before code</title>
+  <desc id="d2-desc">Repairs apply in four ordered layers from static rules through reasoning and learned drops to the tool-choice hatch; the D3 retry loop teaches layer three.</desc>
+  <defs>
+    <style>@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap');</style>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#5a6b85"/></marker>
+    <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2941f3"/></marker>
+    <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#0f7f76"/></marker>
+  </defs>
+
+  <rect width="100%" height="100%" fill="#fbfcfe"/>
+
+  <!-- ============ editorial callout ============ -->
+  <text x="104" y="72" fill="#5a6b85" font-size="14" font-style="italic" font-family="'Inter', sans-serif" text-anchor="start">a repair is data, not code</text>
+  <path d="M 290,80 Q 340,110 380,156" fill="none" stroke="rgba(4,8,16,0.30)" stroke-width="1" stroke-dasharray="4,3"/>
+  <circle cx="380" cy="158" r="2" fill="#5a6b85"/>
+
+  <!-- ============ direction indicator ============ -->
+  <text x="56" y="150" fill="#5a6b85" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">APPLIES</text>
+  <line x1="56" y1="160" x2="56" y2="408" stroke="#5a6b85" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+  <!-- ============ learn-back arrow (before boxes) ============ -->
+  <line x1="872" y1="320" x2="784" y2="320" stroke="#5a6b85" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <rect x="790" y="300" width="76" height="12" rx="2" fill="#fbfcfe"/>
+  <text x="828" y="309" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">NAMES FIELDS</text>
+
+  <!-- ============ layer stack ============ -->
+  <rect x="104" y="160" width="680" height="64" fill="#fbfcfe" stroke="rgba(9,22,40,0.12)" stroke-width="1"/>
+  <rect x="104" y="224" width="680" height="64" fill="#fbfcfe" stroke="rgba(9,22,40,0.12)" stroke-width="1"/>
+  <rect x="104" y="288" width="680" height="64" fill="#fbfcfe" stroke="rgba(9,22,40,0.12)" stroke-width="1"/>
+  <rect x="104" y="352" width="680" height="64" fill="#fbfcfe" stroke="rgba(9,22,40,0.12)" stroke-width="1"/>
+  <rect x="104" y="160" width="680" height="256" fill="none" stroke="#5a6b85" stroke-width="1"/>
+  <!-- L3 focal overlay -->
+  <rect x="104" y="288" width="680" height="64" fill="rgba(41,65,243,0.10)" stroke="#2941f3" stroke-width="1.5"/>
+
+  <text x="120" y="195" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">L1</text>
+  <text x="200" y="197" fill="#040810" font-size="14" font-weight="600" font-family="'Inter', sans-serif">Static rules</text>
+  <text x="768" y="196" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">rewrite-rules.yaml · baked-in</text>
+
+  <text x="120" y="259" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">L2</text>
+  <text x="200" y="261" fill="#040810" font-size="14" font-weight="600" font-family="'Inter', sans-serif">Reasoning</text>
+  <text x="768" y="260" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">disabled→effort:low · floor 4096</text>
+
+  <text x="120" y="323" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">L3</text>
+  <text x="200" y="325" fill="#040810" font-size="14" font-weight="600" font-family="'Inter', sans-serif">Learned drops</text>
+  <text x="768" y="324" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">learned.json · cap 100</text>
+
+  <text x="120" y="387" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.08em">L4</text>
+  <text x="200" y="389" fill="#040810" font-size="14" font-weight="600" font-family="'Inter', sans-serif">Tool-choice hatch</text>
+  <text x="768" y="388" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">drop on 400 · asserts nothing</text>
+
+  <!-- ============ D3 pointer ============ -->
+  <rect x="872" y="298" width="120" height="44" rx="6" fill="#fbfcfe"/>
+  <rect x="872" y="298" width="120" height="44" rx="6" fill="#ffffff" stroke="#7888a0" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="932" y="320" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">D3 · relay</text>
+  <text x="932" y="334" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">names fields</text>
+
+  <!-- ============ refusal note ============ -->
+  <text x="104" y="444" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace">refuses: no tier invented for tier-less requests</text>
+  <text x="104" y="460" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace">proxy-owned fields are never learned</text>
+
+  <!-- ============ legend reminder ============ -->
+  <line x1="40" y1="488" x2="992" y2="488" stroke="rgba(9,22,40,0.12)" stroke-width="0.8"/>
+  <rect x="40" y="498" width="12" height="12" rx="2" fill="rgba(41,65,243,0.10)" stroke="#2941f3" stroke-width="1.5"/>
+  <text x="58" y="507" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">FOCAL LAYER</text>
+  <line x1="200" y1="504" x2="224" y2="504" stroke="#5a6b85" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="232" y="507" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">FROM D3 RELAY</text>
+</svg>

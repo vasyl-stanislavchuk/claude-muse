@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **The architecture diagram is now a five-level set**, walking from system context down through the request lifecycle, repair layers, and retry policy to the launch loop, so you read only the depth your question needs.
+
 ## [0.3.0] - 2026-09-20
 
 ### Added

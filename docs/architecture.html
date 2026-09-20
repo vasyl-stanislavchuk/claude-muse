@@ -12,6 +12,7 @@
       --color-ink:     #040810;
       --color-muted:   #5a6b85;
       --color-accent:  #2941f3;
+      --color-link:    #0f7f76;
       --font-sans:     'Inter', system-ui, sans-serif;
       --font-display:  'Space Grotesk', system-ui, sans-serif;
       --font-mono:     'Geist Mono', ui-monospace, monospace;
@@ -21,10 +22,9 @@
       background: var(--color-paper);
       color: var(--color-ink);
       min-height: 100vh;
-      display: flex; align-items: center; justify-content: center;
-      padding: 3rem 2rem;
+      padding: 3rem 2rem 4rem;
     }
-    .frame { max-width: 1200px; width: 100%; }
+    .frame { max-width: 1200px; width: 100%; margin: 0 auto; }
     .eyebrow {
       font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500;
       letter-spacing: 0.18em; text-transform: uppercase;
@@ -34,154 +34,90 @@
       font-family: var(--font-display);
       font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
       font-weight: 300; letter-spacing: -0.02em; line-height: 1.15;
-      color: var(--color-ink); margin-bottom: 1.5rem;
+      margin-bottom: 0.75rem;
     }
-    svg { width: 100%; min-width: 900px; display: block; }
+    .lede {
+      color: var(--color-muted); font-size: 1rem; line-height: 1.6;
+      max-width: 62ch; margin-bottom: 1rem;
+    }
+    nav.toc { margin-bottom: 3rem; }
+    nav.toc ol { list-style: none; display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+    nav.toc a {
+      font-family: var(--font-mono); font-size: 0.8rem;
+      color: var(--color-link); text-decoration: none;
+    }
+    nav.toc a:hover { text-decoration: underline; }
+    figure { margin: 0 0 3.5rem; }
+    figure:last-child { margin-bottom: 0; }
+    figure h2 {
+      font-family: var(--font-display);
+      font-size: 1.25rem; font-weight: 500; letter-spacing: -0.01em;
+      margin-bottom: 0.25rem;
+    }
+    figure h2 .level {
+      font-family: var(--font-mono); font-size: 0.75rem; font-weight: 500;
+      letter-spacing: 0.14em; color: var(--color-muted);
+      display: block; margin-bottom: 0.25rem;
+    }
+    figcaption {
+      color: var(--color-muted); font-size: 0.95rem; line-height: 1.6;
+      max-width: 72ch; margin-bottom: 1rem;
+    }
+    figcaption a { color: var(--color-link); text-decoration: none; }
+    figcaption a:hover { text-decoration: underline; }
+    .sheet {
+      overflow-x: auto;
+      border: 1px solid rgba(9,22,40,0.12); border-radius: 8px;
+      background: var(--color-paper);
+    }
+    .sheet img { display: block; width: 100%; height: auto; }
+    .sheet.narrow img { min-width: 720px; }
   </style>
 </head>
 <body>
   <div class="frame">
     <p class="eyebrow">Architecture · claude-muse</p>
     <h1>One localhost hop between Claude Code and muse-spark</h1>
+    <p class="lede">Five diagrams, wide to narrow. Start at the top if you are new here; drop to the level that matches the question you are asking. Every figure states one claim, and every number on every figure matches the code it draws.</p>
+    <nav class="toc" aria-label="Diagram levels">
+      <ol>
+        <li><a href="#d0">D0 · System context</a></li>
+        <li><a href="#d1">D1 · Request lifecycle</a></li>
+        <li><a href="#d2">D2 · Repair internals</a></li>
+        <li><a href="#d3">D3 · Relay and retry</a></li>
+        <li><a href="#d4">D4 · Launch and probe</a></li>
+      </ol>
+    </nav>
 
-    <svg viewBox="0 0 960 480" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="muse-arch-title muse-arch-desc">
-      <title id="muse-arch-title">claude-muse architecture</title>
-      <desc id="muse-arch-desc">Claude Code sends requests to a local proxy that repairs the shapes Meta's endpoint rejects, learns new ones from its errors, retries transient failures and records every response, before forwarding to api.meta.ai. Three things it deliberately does not repair are listed at the foot.</desc>
-      <defs>
-        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#5a6b85"/></marker>
-        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2941f3"/></marker>
-        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#0f7f76"/></marker>
-      </defs>
+    <figure id="d0">
+      <h2><span class="level">D0 · SYSTEM CONTEXT</span>What the proxy is</h2>
+      <figcaption>One localhost hop repairs, retries, and records every request; responses return to Claude Code. Runtime state lives under <a href="auth.md">~/.config/claude-muse/</a>, outside this repo.</figcaption>
+      <div class="sheet"><img src="architecture.svg" alt="System context: Claude Code sends requests through one local proxy to api.meta.ai; responses return to Claude Code."></div>
+    </figure>
 
-      <rect width="100%" height="100%" fill="#fbfcfe"/>
+    <figure id="d1">
+      <h2><span class="level">D1 · REQUEST LIFECYCLE</span>What one request passes through</h2>
+      <figcaption>Every request passes seven numbered stages; local paths answer without touching the network and only the relay loop talks upstream. Read this before you touch <a href="design.md">the engine</a>.</figcaption>
+      <div class="sheet narrow"><img src="architecture-request.svg" alt="Request lifecycle: reload, short-circuit check, rewrite, census, relay, pump, and post stages with local exits."></div>
+    </figure>
 
-      <!-- ============ zones (drawn first) ============ -->
-      <rect x="40" y="120" width="176" height="240" rx="12" fill="rgba(4,8,16,0.015)" stroke="rgba(4,8,16,0.07)" stroke-width="0.8"/>
-      <rect x="76" y="124" width="56" height="12" rx="2" fill="#fbfcfe"/>
-      <text x="104" y="133" fill="rgba(4,8,16,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">CLIENT</text>
+    <figure id="d2">
+      <h2><span class="level">D2 · REPAIR INTERNALS</span>What rewrite() changes, in order</h2>
+      <figcaption>Repairs apply in four layers, data before code; the retry loop teaches layer three. The measured rules behind each layer are in <a href="api-subset.md">the API subset</a>.</figcaption>
+      <div class="sheet narrow"><img src="architecture-rewrite.svg" alt="Repair layers: static rules, reasoning, learned drops, and the tool-choice hatch."></div>
+    </figure>
 
-      <rect x="256" y="120" width="456" height="240" rx="12" fill="rgba(4,8,16,0.015)" stroke="rgba(4,8,16,0.07)" stroke-width="0.8"/>
-      <rect x="392" y="124" width="184" height="12" rx="2" fill="#fbfcfe"/>
-      <text x="484" y="133" fill="rgba(4,8,16,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">LOCALHOST PROXY 127.0.0.1:8787</text>
+    <figure id="d3">
+      <h2><span class="level">D3 · RELAY AND RETRY</span>What happens past rewrite()</h2>
+      <figcaption>Three failure classes, three treatments: wait and resend, learn and resend, or stop with a hint. Match each path to its log line when you debug a slow or failed request.</figcaption>
+      <div class="sheet"><img src="architecture-relay.svg" alt="Relay flowchart: cooldown gate, send, outcome decision, wait and learn resend loops, pump, respond."></div>
+    </figure>
 
-      <!-- ============ arrows (before boxes) ============ -->
-      <!-- Claude Code -> rewrite -->
-      <line x1="192" y1="180" x2="280" y2="180" stroke="#5a6b85" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <rect x="208" y="160" width="56" height="12" rx="2" fill="#fbfcfe"/>
-      <text x="236" y="169" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">REQUEST</text>
-
-      <!-- rewrite -> retry -->
-      <line x1="456" y1="180" x2="520" y2="180" stroke="#5a6b85" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <rect x="460" y="160" width="56" height="12" rx="2" fill="#fbfcfe"/>
-      <text x="488" y="169" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">REPAIRED</text>
-
-      <!-- retry -> api.meta.ai -->
-      <line x1="688" y1="180" x2="744" y2="180" stroke="#0f7f76" stroke-width="1.2" marker-end="url(#arrow-link)"/>
-      <rect x="696" y="160" width="40" height="12" rx="2" fill="#fbfcfe"/>
-      <text x="716" y="169" fill="#0f7f76" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">HTTPS</text>
-
-      <!-- api.meta.ai -> log + health (response path) -->
-      <path d="M 832,208 V 284 Q 832,292 824,292 H 688" fill="none" stroke="#5a6b85" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
-      <rect x="728" y="272" width="56" height="12" rx="2" fill="#fbfcfe"/>
-      <text x="756" y="281" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">RESPONSE</text>
-
-      <!-- policy -> rewrite (reads rules) -->
-      <line x1="344" y1="256" x2="344" y2="208" stroke="#5a6b85" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <rect x="280" y="224" width="56" height="12" rx="2" fill="#fbfcfe"/>
-      <text x="308" y="233" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">RULES</text>
-
-      <!-- rewrite -> policy (learns a rejected field) -->
-      <line x1="392" y1="208" x2="392" y2="256" stroke="#5a6b85" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
-      <rect x="400" y="224" width="56" height="12" rx="2" fill="#fbfcfe"/>
-      <text x="428" y="233" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">LEARNS</text>
-
-      <!-- guardrails -> Claude Code -->
-      <line x1="128" y1="256" x2="128" y2="208" stroke="#5a6b85" stroke-width="1.2" marker-end="url(#arrow)"/>
-      <rect x="136" y="224" width="56" height="12" rx="2" fill="#fbfcfe"/>
-      <text x="164" y="233" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">STEERS</text>
-
-      <!-- ============ nodes ============ -->
-      <!-- Claude Code (input) -->
-      <rect x="64" y="152" width="128" height="56" rx="6" fill="#fbfcfe"/>
-      <rect x="64" y="152" width="128" height="56" rx="6" fill="#ffffff" stroke="#7888a0" stroke-width="1"/>
-      <text x="128" y="180" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Claude Code</text>
-      <text x="128" y="196" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">muse profile</text>
-
-      <!-- guardrails (store) -->
-      <rect x="64" y="256" width="128" height="72" rx="6" fill="#fbfcfe"/>
-      <rect x="64" y="256" width="128" height="72" rx="6" fill="rgba(90,107,133,0.08)" stroke="#667997" stroke-width="1"/>
-      <text x="128" y="280" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Guardrails</text>
-      <text x="128" y="296" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">CLAUDE.md</text>
-      <text x="128" y="308" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">continue-gate</text>
-      <text x="128" y="320" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">permissions.allow</text>
-
-      <!-- rewrite() FOCAL -->
-      <rect x="280" y="152" width="176" height="56" rx="6" fill="#fbfcfe"/>
-      <rect x="280" y="152" width="176" height="56" rx="6" fill="rgba(41,65,243,0.10)" stroke="#2941f3" stroke-width="1.5"/>
-      <rect x="288" y="156" width="40" height="12" rx="2" fill="transparent" stroke="rgba(41,65,243,0.40)" stroke-width="0.8"/>
-      <text x="308" y="165" fill="rgba(41,65,243,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">REPAIR</text>
-      <text x="368" y="188" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">rewrite()</text>
-      <text x="368" y="202" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">shape repairs + reasoning</text>
-
-      <!-- retry + send -->
-      <rect x="520" y="152" width="168" height="56" rx="6" fill="#fbfcfe"/>
-      <rect x="520" y="152" width="168" height="56" rx="6" fill="#ffffff" stroke="#5a6b85" stroke-width="1"/>
-      <text x="604" y="180" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Retry + send</text>
-      <text x="604" y="196" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">429/503 · cooldown</text>
-
-      <!-- policy + learned (store) -->
-      <rect x="280" y="256" width="176" height="72" rx="6" fill="#fbfcfe"/>
-      <rect x="280" y="256" width="176" height="72" rx="6" fill="rgba(90,107,133,0.08)" stroke="#667997" stroke-width="1"/>
-      <text x="368" y="280" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Policy + learned</text>
-      <text x="368" y="300" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">rewrite-rules.yaml</text>
-      <text x="368" y="316" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">learned.json</text>
-
-      <!-- log + health (store) -->
-      <rect x="520" y="256" width="168" height="72" rx="6" fill="#fbfcfe"/>
-      <rect x="520" y="256" width="168" height="72" rx="6" fill="rgba(90,107,133,0.08)" stroke="#667997" stroke-width="1"/>
-      <text x="604" y="280" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">Log + health</text>
-      <text x="604" y="300" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">stop · blocks · usage</text>
-      <text x="604" y="316" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">shapes.json</text>
-
-      <!-- api.meta.ai (external) -->
-      <rect x="744" y="152" width="176" height="56" rx="6" fill="#fbfcfe"/>
-      <rect x="744" y="152" width="176" height="56" rx="6" fill="#ffffff" stroke="#7888a0" stroke-width="1" stroke-dasharray="4,3"/>
-      <text x="832" y="180" fill="#040810" font-size="12" font-weight="600" font-family="'Inter', sans-serif" text-anchor="middle">api.meta.ai</text>
-      <text x="832" y="196" fill="#5a6b85" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">muse-spark-1.3</text>
-
-      <!-- ============ editorial callouts ============ -->
-      <text x="920" y="44" fill="#2941f3" font-size="14" font-style="italic" font-family="'Inter', sans-serif" text-anchor="end">reasoning starts at &#8220;low&#8221; here: there is no off</text>
-      <path d="M 848 52 Q 872 96 836 148" fill="none" stroke="rgba(41,65,243,0.50)" stroke-width="1" stroke-dasharray="4,3"/>
-      <circle cx="836" cy="148" r="2" fill="#2941f3"/>
-
-      <text x="40" y="44" fill="#5a6b85" font-size="14" font-style="italic" font-family="'Inter', sans-serif" text-anchor="start">a repair is data, not code</text>
-      <path d="M 188 52 Q 268 72 340 148" fill="none" stroke="rgba(4,8,16,0.30)" stroke-width="1" stroke-dasharray="4,3"/>
-      <circle cx="340" cy="148" r="2" fill="#5a6b85"/>
-
-      <!-- ============ legend ============ -->
-      <line x1="40" y1="396" x2="920" y2="396" stroke="rgba(9,22,40,0.12)" stroke-width="0.8"/>
-      <text x="40" y="416" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
-
-      <rect x="136" y="408" width="12" height="12" rx="2" fill="rgba(41,65,243,0.10)" stroke="#2941f3" stroke-width="1.5"/>
-      <text x="156" y="416" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">REPAIR POINT</text>
-
-      <rect x="296" y="408" width="12" height="12" rx="2" fill="rgba(90,107,133,0.08)" stroke="#667997" stroke-width="1"/>
-      <text x="316" y="416" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">STATE ON DISK</text>
-
-      <rect x="464" y="408" width="12" height="12" rx="2" fill="#ffffff" stroke="#7888a0" stroke-width="1" stroke-dasharray="4,3"/>
-      <text x="484" y="416" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">OUTSIDE THIS REPO</text>
-
-      <line x1="640" y1="412" x2="656" y2="412" stroke="#5a6b85" stroke-width="1" stroke-dasharray="4,3"/>
-      <text x="664" y="416" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">RETURN PATH</text>
-
-      <!-- ============ gaps strip ============ -->
-      <line x1="40" y1="444" x2="920" y2="444" stroke="rgba(9,22,40,0.12)" stroke-width="0.8"/>
-      <text x="40" y="464" fill="#2941f3" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">NOT REPAIRED</text>
-
-      <text x="176" y="464" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">SAFETY CLASSIFIER PAYS FULL REASONING</text>
-      <text x="480" y="464" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">COUNT_TOKENS IS AN ESTIMATE</text>
-      <text x="720" y="464" fill="#5a6b85" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">SOURCES ONLY FOR OPENED PAGES</text>
-    </svg>
+    <figure id="d4">
+      <h2><span class="level">D4 · LAUNCH AND PROBE</span>How the proxy gets proven</h2>
+      <figcaption>A normal launch costs nothing; the first launch after an edit spends two calls proving it works. The launch rules behind this lane are in <a href="design.md">the design notes</a>.</figcaption>
+      <div class="sheet narrow"><img src="architecture-launch.svg" alt="Launch loop: shell, model-env, pin and start, hash check, paid probe, exec, plus the manual probe harness."></div>
+    </figure>
   </div>
 </body>
 </html>
