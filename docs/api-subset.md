@@ -22,11 +22,11 @@ Those rows are why **subagents never launched**. Claude Code's auto mode asks a 
 
 **Correction.** Earlier versions of this file said the classifier sends `thinking: {type:"disabled"}`. It does not. The census records its shape as `keys=max_tokens,messages,metadata,model,stop_sequences,system` with `max_tokens=2112` and no `thinking` key at all; the only `thinking=disabled` row in `shapes.json` is `probe.sh` sending one. The classifier carries **no reasoning directive**, which matters because this endpoint has no way to switch reasoning off - see below.
 
-The engine repairs all of it: it strips the unsupported `web_search` fields, rewrites a **named** `tool_choice` to `auto`, translates `thinking: {type:"disabled"}` into the cheapest tier the endpoint has, raises `max_tokens` to a floor of 4096, and clamps `budget_tokens` below it. [D2 of the architecture gallery](architecture.html#d2) draws these repairs as four ordered layers.
+The engine repairs all of it: it strips the unsupported `web_search` fields, rewrites a **named** `tool_choice` to `auto`, translates `thinking: {type:"disabled"}` into the cheapest tier the endpoint has, raises `max_tokens` to a floor of 4096, and clamps `budget_tokens` below it. [D2 of the architecture gallery](architecture.md#d2) draws these repairs as four ordered layers.
 
 Only the named form is rewritten. `any` and `none` pass through, because the only rejection ever measured is the named one, and forcing `none` to `auto` would turn "do not call tools" into "call tools if you like" - the proxy granting a permission rather than repairing a shape. If `any` or `none` does turn out to be rejected, the retry path drops the field instead of replacing it: absence asserts nothing, where `auto` asserts something.
 
-**It learns the rest.** A `400` that names a field in backticks is the endpoint describing its own subset, so the proxy records the name, first sighting and hit count in `learned.json`, strips it and retries - before anything reaches Claude Code, so the only visible cost is one slow request the first time a gap appears. `stop_sequences`, `safeguards` and `top_k` were all found this way rather than by hand. [D3](architecture.html#d3) draws the learn-and-retry loop it feeds.
+**It learns the rest.** A `400` that names a field in backticks is the endpoint describing its own subset, so the proxy records the name, first sighting and hit count in `learned.json`, strips it and retries - before anything reaches Claude Code, so the only visible cost is one slow request the first time a gap appears. `stop_sequences`, `safeguards` and `top_k` were all found this way rather than by hand. [D3](architecture.md#d3) draws the learn-and-retry loop it feeds.
 
 Two things worth knowing:
 

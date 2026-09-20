@@ -16,7 +16,7 @@ Three things are deliberately not repaired: the classifier above, `count_tokens`
 
 ![One localhost hop between Claude Code and muse-spark: requests are repaired, retried and recorded, and responses return to Claude Code.](docs/architecture.svg)
 
-That figure is the first of five: [the architecture gallery](docs/architecture.html) walks from system context down to the retry policy.
+That figure is the first of five: [the architecture gallery](docs/architecture.md) walks from system context down to the retry policy.
 
 ## Why a proxy is involved
 
