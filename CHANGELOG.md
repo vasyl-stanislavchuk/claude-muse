@@ -2,9 +2,21 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-20
+
 ### Added
 
 - **The install keeps itself in step with the repo.** A commit, a pull or a branch switch re-links it, so a file added to the repo no longer waits for you to remember `install.sh`. The running proxy is left alone on purpose: restarting it would cut off whatever session is mid-request, and your next launch picks up the new code anyway.
+- **Every push runs the offline suite, shellcheck, ruff, and the pre-commit suite in CI**, and `make check` is the same gate locally.
+- **`run-prompts.sh` now installs with everything else**, instead of living repo-only.
+
+### Changed
+
+- **The proxy is now an `engine/` package of seven modules instead of one 1,742-line file**, and the next launch re-probes once to prove behavior is unchanged.
+
+### Fixed
+
+- **Uninstalling removes the whole engine**, including `model-env.sh`, which used to survive while everything around it was deleted.
 
 ## [0.2.0] - 2026-09-19
 
