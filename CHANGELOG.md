@@ -4,9 +4,15 @@
 
 ### Added
 
+- **md and Switchboard can launch sessions on Muse.** The repo is now an md plugin: `md plugin install claude-muse` sets it up, and Switchboard's "Runs on" picker offers Muse for sessions, plans and reviews.
+- **`claude-muse` is an executable as well as a shell function**, so anything that can start a program can start a Muse session. The shell function only forwards to it now, so an open terminal can no longer run a stale copy.
 - **The architecture diagram is now a five-level set**, walking from system context down through the request lifecycle, repair layers, and retry policy to the launch loop, so you read only the depth your question needs.
 - **A `/review-learned` skill walks you through the learned-state review**, assembling strip counts and the shape census into a promote, watch, prune, or investigate verdict per field, with the full flow written up alongside it.
 - **The `stop_sequences` strip is now pinned policy instead of learned memory**, with an offline test and a probe row proving the endpoint still rejects it.
+
+### Changed
+
+- **Re-running the installer leaves a healthy proxy alone** when its launch agent has not changed, so an update never cuts off a session mid-request.
 
 ## [0.3.0] - 2026-09-20
 

@@ -1,6 +1,6 @@
 # Local gate. `check` is the one command to run before a commit; the full
 # suite takes seconds, so there is no affected-tests shortcut to maintain.
-SH_FILES := install.sh uninstall.sh bin/*.sh lib/*.sh profile/statusline.sh profile/hooks/continue-gate .githooks/*
+SH_FILES := install.sh uninstall.sh bin/*.sh bin/claude-muse lib/*.sh profile/statusline.sh profile/hooks/continue-gate .githooks/*
 
 .PHONY: check test shell help
 

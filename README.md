@@ -4,7 +4,7 @@ Claude Code's interface, running Meta's `muse-spark-1.3` instead of an Anthropic
 
 You keep the client you already know - the keyboard, the permission model, the skills, the subagents, the worktrees - and swap only the model behind it. Useful for comparing the two models on identical work, and for spending a Muse Code subscription without learning a second agent's UI.
 
-Your existing `claude` is untouched. `claude-muse` is a separate shell function with its own config profile, so nothing here can change how your normal sessions behave.
+Your existing `claude` is untouched. `claude-muse` is a separate launcher with its own config profile, so nothing here can change how your normal sessions behave.
 
 ## Where this is
 
@@ -31,7 +31,7 @@ The failures are not the kind you can read. A rejected `max_uses` takes out web 
 Requires macOS, Claude Code, `jq`, and Meta's `muse` CLI already logged in (`muse login`).
 
 ```bash
-git clone git@github.com:vasyl-stanislavchuk/claude-muse.git ~/projects/claude-muse
+git clone https://github.com/vasyl-stanislavchuk/claude-muse.git ~/projects/claude-muse
 cd ~/projects/claude-muse
 ./install.sh --check          # verify the environment first
 ./install.sh
@@ -44,11 +44,24 @@ claude-muse
 
 `./uninstall.sh` removes the agent and the engine; `--purge` also removes the state. Neither touches your session history.
 
+## Use it from md and Switchboard
+
+The repo ships an `md-plugin.toml`, so medallion's `md` CLI can install it and launch sessions on it:
+
+```bash
+md plugin install claude-muse    # clones it, or adopts ~/projects/claude-muse, and runs install.sh
+md driver list                   # Claude and Muse, both available
+md review swarm run 1234 --auto --driver claude-muse
+```
+
+**Once it is installed, Switchboard shows a "Runs on" picker** in Settings › Sessions, the Plan work dialog, the review-loop dialog and Autopilot's Scan. md runs `bin/claude-muse` where it would run `claude`, with the same flags, and finds the session in `~/.claude-profiles/muse` afterwards, so the rail shows it live and resumes it on Muse.
+
 ## What gets installed where
 
 | Path | What it is |
 | --- | --- |
 | `~/.config/claude-muse/` | the engine, symlinked from this repo, plus runtime state |
+| `~/.config/claude-muse/claude-muse` | the launcher the shell function, md and Switchboard all run |
 | `~/.config/claude-muse/learned.json` | fields the proxy taught itself to drop, added as it meets them |
 | `~/.config/claude-muse/rewrite-rules.yaml` | the repair policy: which shapes the proxy rewrites, editable without touching code |
 | `~/.config/claude-muse/shapes.json` | every distinct request shape Claude Code has sent, recorded once each |
@@ -85,4 +98,4 @@ claude-muse -p "Reply with exactly: ok"                 # ok
 
 This is internal tooling, not a supported product. It tracks two moving targets - Claude Code releases and the endpoint's subset - and the learn-and-retry mechanism exists precisely because the second one is not documented anywhere.
 
-Nothing here is Meta-specific except `bin/api-key.sh`, the model ids in the shell function, and the defaults at the top of `engine/server.py`. Pointing it at a different Anthropic-compatible endpoint is a matter of changing those.
+Nothing here is Meta-specific except `bin/api-key.sh`, the model ids in `lib/model-env.sh`, and the defaults at the top of `engine/server.py`. Pointing it at a different Anthropic-compatible endpoint is a matter of changing those.

@@ -13,7 +13,7 @@ Why the pieces sit where they do. In short: the shell function holds only what n
 
 A shell function is a **copy**, taken when the shell read `~/.zshrc`. Change the function and every terminal already open keeps running the old body, indefinitely. That is not theoretical: the day the proxy landed, a session launched from a shell opened an hour earlier went straight at `api.meta.ai`, lost web search and every subagent, and reported it as a *"model classifier hiccup"* - because the auto-mode classifier is the first thing the endpoint rejects. Nothing about the symptom pointed at the shell.
 
-So the function holds only what rarely changes, and `preflight.sh` holds everything else. That file is read fresh on every launch, so a change to the checks, the port, or the base URL reaches every shell immediately, open or not.
+So the function now holds nothing at all: it forwards to `bin/claude-muse`, an executable that sources `model-env.sh` and `preflight.sh` and execs `claude`. Those files are read fresh on every launch, so a change to the checks, the port, or the base URL reaches every shell immediately, open or not. The launcher being a file is also what lets md and Switchboard start a Muse session, because `env` and a cmux tab can run a program but never a function.
 
 What survives a stale function is the status line, which Claude Code evaluates live from the session's own environment. `direct — relaunch` there is the tell, and the fix is always the same: quit and relaunch from a new shell. `exec zsh` does not rescue a session already running, because it inherited its environment at launch.
 

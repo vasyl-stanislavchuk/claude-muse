@@ -63,3 +63,33 @@ def test_baked_in_rules_match_yaml_template(proxy):
     assert [proxy.Rule(**e) for e in doc["rules"]] == proxy.BAKED_IN_RULES
     profiles = {k: proxy.Profile(**v) for k, v in doc["models"].items()}
     assert profiles == proxy.BAKED_IN_PROFILES
+
+
+def _manifest_value(key):
+    """One `key = "value"` from md-plugin.toml. A regex, because tomllib is 3.11+ and CI is 3.9."""
+    text = (REPO / "md-plugin.toml").read_text()
+    match = re.search(rf'^{key} = "([^"]*)"$', text, re.M)
+    assert match, f"md-plugin.toml has no {key}"
+    return match.group(1)
+
+
+def test_md_driver_store_is_the_profile_the_launcher_uses():
+    """md watches `config_dir` for the session; model-env.sh decides where it is written.
+
+    If the two ever disagree, every Muse session md launches reads as dead the moment it starts,
+    and md relaunches it.
+    """
+    env = (REPO / "lib" / "model-env.sh").read_text()
+    exported = re.search(r'^export CLAUDE_CONFIG_DIR="\$HOME/([^"]+)"$', env, re.M)
+    assert exported, "model-env.sh no longer exports CLAUDE_CONFIG_DIR under $HOME"
+    assert _manifest_value("config_dir") == "~/" + exported.group(1)
+
+
+def test_md_driver_launcher_is_an_executable_in_the_repo():
+    text = (REPO / "md-plugin.toml").read_text()
+    argv = re.search(r'^argv = \["\{checkout\}/([^"]+)"\]$', text, re.M)
+    assert argv, "the [driver] argv is not a single {checkout}-relative launcher"
+    launcher = REPO / argv.group(1)
+    assert launcher.is_file()
+    assert launcher.stat().st_mode & 0o111, f"{argv.group(1)} is not executable"
+    assert "exec claude" in launcher.read_text()

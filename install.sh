@@ -117,6 +117,7 @@ place_dir engine            "$STATE_DIR/engine"
 place bin/probe.sh          "$STATE_DIR/probe.sh"
 place bin/api-key.sh        "$STATE_DIR/api-key.sh"
 place bin/run-prompts.sh    "$STATE_DIR/run-prompts.sh"
+place bin/claude-muse       "$STATE_DIR/claude-muse"
 place lib/preflight.sh      "$STATE_DIR/preflight.sh"
 place lib/model-env.sh      "$STATE_DIR/model-env.sh"
 place profile/statusline.sh "$PROFILE_DIR/statusline.sh"
@@ -205,14 +206,23 @@ if [ "$WITH_AGENT" = 0 ]; then
   exit 0
 fi
 
-render templates/launchagent.plist.tmpl "$PLIST"
-launchctl bootout "gui/$(id -u)/$AGENT" >/dev/null 2>&1 || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST" >/dev/null 2>&1 \
-  || launchctl load "$PLIST" >/dev/null 2>&1 || true
-launchctl kickstart -k "gui/$(id -u)/$AGENT" >/dev/null 2>&1 || true
-
 port="$(sed -n 's/^CLAUDE_MUSE_PORT=\([0-9]*\)/\1/p' "$REPO/lib/preflight.sh" | head -1)"
 port="${port:-8787}"
+
+# A re-run leaves a healthy proxy on an unchanged launch agent alone: restarting it would cut off
+# whatever session is mid-request, and `md plugin update` re-runs this script. preflight restarts
+# the proxy at the next launch when the engine moved, which is the safe moment.
+plist_before="$(cat "$PLIST" 2>/dev/null || true)"
+render templates/launchagent.plist.tmpl "$PLIST"
+if [ "$plist_before" = "$(cat "$PLIST")" ] && curl -fsS -m 2 "http://127.0.0.1:$port/__health" >/dev/null 2>&1; then
+  say "proxy already running on an unchanged launch agent, left alone"
+else
+  launchctl bootout "gui/$(id -u)/$AGENT" >/dev/null 2>&1 || true
+  launchctl bootstrap "gui/$(id -u)" "$PLIST" >/dev/null 2>&1 \
+    || launchctl load "$PLIST" >/dev/null 2>&1 || true
+  launchctl kickstart -k "gui/$(id -u)/$AGENT" >/dev/null 2>&1 || true
+fi
+
 for _ in $(seq 1 40); do
   health="$(curl -fsS -m 2 "http://127.0.0.1:$port/__health" 2>/dev/null || true)"
   [ -n "$health" ] && break

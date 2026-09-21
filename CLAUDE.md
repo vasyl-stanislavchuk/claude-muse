@@ -56,7 +56,7 @@ Say what you ran. "The rewrite rules pass offline; the paid probe runs on the ne
 - **Repair shapes, never manufacture a verdict.** The proxy fixes requests the endpoint cannot parse. Answering the auto-mode safety classifier on the endpoint's behalf is a different thing, it would apply silently to every future session, and `permissions.allow` already exists for it.
 - **`settings.json` must never gain a `model` key.** A settings model pin outranks `ANTHROPIC_MODEL` and would send every request to Anthropic on a Meta key. `install.sh` warns if one appears.
 - **Runtime state stays out of the repo.** `learned.json`, `shapes.json`, `verified` and the logs live in `~/.config/claude-muse` and are gitignored.
-- **Rarely-changing things go in the shell function, everything else in `preflight.sh`.** A shell function is a copy taken when the shell read it, so a check added there reaches only new terminals. `docs/design.md` has the morning this cost.
+- **The shell function only forwards to `bin/claude-muse`, and checks go in `preflight.sh`.** A shell function is a copy taken when the shell read it, so a check added there reaches only new terminals. `docs/design.md` has the morning this cost.
 
 ## Style
 

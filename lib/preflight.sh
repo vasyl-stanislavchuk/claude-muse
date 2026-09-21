@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Sourced by claude-muse() before it execs claude. Not executable on its own.
+# Sourced by bin/claude-muse before it execs claude. Not executable on its own.
 #
 # Everything that might change lives here rather than in the shell function,
 # because this file is read fresh on every launch while the function is a copy
