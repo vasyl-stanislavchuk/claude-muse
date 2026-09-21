@@ -44,24 +44,12 @@ claude-muse
 
 `./uninstall.sh` removes the agent and the engine; `--purge` also removes the state. Neither touches your session history.
 
-## Use it from md and Switchboard
-
-The repo ships an `md-plugin.toml`, so medallion's `md` CLI can install it and launch sessions on it:
-
-```bash
-md plugin install claude-muse    # clones it, or adopts ~/projects/claude-muse, and runs install.sh
-md driver list                   # Claude and Muse, both available
-md review swarm run 1234 --auto --driver claude-muse
-```
-
-**Once it is installed, Switchboard shows a "Runs on" picker** in Settings › Sessions, the Plan work dialog, the review-loop dialog and Autopilot's Scan. md runs `bin/claude-muse` where it would run `claude`, with the same flags, and finds the session in `~/.claude-profiles/muse` afterwards, so the rail shows it live and resumes it on Muse.
-
 ## What gets installed where
 
 | Path | What it is |
 | --- | --- |
 | `~/.config/claude-muse/` | the engine, symlinked from this repo, plus runtime state |
-| `~/.config/claude-muse/claude-muse` | the launcher the shell function, md and Switchboard all run |
+| `~/.config/claude-muse/claude-muse` | the launcher: the shell function forwards to it, and other tools run it in place of `claude` |
 | `~/.config/claude-muse/learned.json` | fields the proxy taught itself to drop, added as it meets them |
 | `~/.config/claude-muse/rewrite-rules.yaml` | the repair policy: which shapes the proxy rewrites, editable without touching code |
 | `~/.config/claude-muse/shapes.json` | every distinct request shape Claude Code has sent, recorded once each |
@@ -93,6 +81,7 @@ claude-muse -p "Reply with exactly: ok"                 # ok
 - [`docs/design.md`](docs/design.md) - why the logic is not in the shell function, how auto mode degrades, what the context readout can and cannot tell you.
 - [`docs/auth.md`](docs/auth.md) - how the subscription key is resolved, and why a console key will not work.
 - [`docs/promotion.md`](docs/promotion.md) - when learned state earns a review, and what each verdict costs.
+- [`docs/launching.md`](docs/launching.md) - starting Muse sessions from scripts and other tools, including medallion's md CLI and Switchboard.
 
 ## Scope
 
