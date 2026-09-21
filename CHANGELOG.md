@@ -12,6 +12,7 @@
 
 ### Changed
 
+- **A review md opens on Muse can post its findings without waiting on a safety verdict.** `gh api`, `gh pr review`, `gh issue view` and `git cat-file` join the allowed tools, matching the main Claude profile; an existing `settings.json` needs them added by hand, and the installer names them.
 - **Re-running the installer leaves a healthy proxy alone** when its launch agent has not changed, so an update never cuts off a session mid-request.
 
 ## [0.3.0] - 2026-09-20
