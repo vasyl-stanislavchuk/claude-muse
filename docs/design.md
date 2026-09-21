@@ -51,6 +51,8 @@ Two things address the remainder, both in the profile rather than the proxy. `pr
 
 The hook is deliberately timid. It reads `background_tasks` and `session_crons` from the hook input and allows whenever either is non-empty, because a turn that ends waiting on a subagent is correct and a notification will wake it. It matches a narrow list of phrases rather than guessing at intent. It gives up after two blocks in an episode, because a gate that cannot give up is a hang. And it fails open on every absence - no `jq`, no input, unparseable input.
 
+A later session added two more classes to the same hook. Eight turns ended announcing the next action ("Closing w0.2 and moving to S2:") with no tool call, each costing a typed "continue", so a trailing colon after a progress gerund - or a Now/Next lead into one - now blocks on the same shared counter. The same session showed the model claiming "Loop armed" without ever calling ScheduleWakeup, so an arming claim with empty `session_crons` blocks too; the binary documents that field as covering CronCreate, ScheduleWakeup and /loop. The two-block bound stays as it was: every stall was a fresh turn with full budget, so coverage was the miss, not budget.
+
 Doing this at the proxy was considered and rejected. Detecting "the model asked a question" and injecting a continuation would manufacture conversation, and it would apply to every future session with nothing in the transcript to show for it.
 
 ## The context readout

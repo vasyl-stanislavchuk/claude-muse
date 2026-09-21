@@ -1,0 +1,7 @@
+{
+  "stop_hook_active": false,
+  "session_id": "fixture-block-announce-now-286",
+  "background_tasks": [],
+  "session_crons": [],
+  "last_assistant_message": "Both reads confirm the scout data (per-block `data`/`key` shapes, lint rules, taxonomy order, FSRS text). Now the big one: rewriting `contracts.md` with all Phase-0 pins."
+}

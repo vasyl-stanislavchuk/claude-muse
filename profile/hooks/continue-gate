@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
-# continue-gate - Stop hook. Blocks a turn that ends by asking permission to
-# carry on with work that is already approved.
+# continue-gate - Stop hook. Blocks a turn that ends stalled: asking permission
+# to carry on, announcing the next step without taking it, or claiming an armed
+# loop with nothing in flight.
 #
 # Measured from 55 muse sessions: 130 turns ended text-only, 63 of them needed
 # the user to type something, and 25 carried asking-permission language. The
 # worst of them was "Say the word and I'll start executing from Step 0",
 # answered with "go".
+#
+# A Sep 20-21 wave session added a second class: 8 turns ended announcing the
+# next action ("Closing w0.2 and moving to S2:") with no tool call, each
+# resumed by a human "continue", one after an overnight stall. Seven end in a
+# trailing colon after a progress gerund, two lead with Now/Next into one. The
+# same session showed the model claiming "Loop armed" without ever calling
+# ScheduleWakeup, so an arming claim with empty session_crons blocks too.
 #
 # Exit 0 = let the turn end, one line on stdout.
 # Exit 2 = block, Claude Code feeds stderr back to the model.
@@ -70,8 +78,65 @@ fi
 # a request for permission to continue, not a question about substance.
 ASKING='(say the word|just say when|want me to|shall i|should i (go|proceed|start|continue)|would you like me to|let me know (if|once|when|whether)|ready to (proceed|start|begin|implement|execute)|say the word and)'
 
-if ! printf '%s' "$MESSAGE" | grep -Eiq "$ASKING"; then
-  echo "continue-gate: turn did not end asking to continue, allowing."
+# An arming claim with nothing in flight. session_crons is already known empty
+# here (the allow above exits otherwise), and the binary documents the field as
+# covering CronCreate, ScheduleWakeup and /loop. The claim must read as an
+# assertion - sentence-initial, after "and", or first-person perfect - so that
+# merely mentioning the words ("claiming 'loop armed'") never matches.
+# Runs before the announce check: a claim names the exact repair, an
+# announcement only the shape.
+# U+2019 built from octal: a literal curly quote trips shellcheck SC1112, and
+# the model does get typographic ("I’ve armed the loop" is a real claim shape).
+RQ="$(printf '\342\200\231')"
+LOOPCLAIM="(^|[.!?;:,]+ *| and )(the )?loop( is)?( now)? armed([^A-Za-z]|\$)|(^|[^A-Za-z])i(['$RQ]?ve| have) armed"
+
+# A gerund candidate with a word guard, so "settings" never matches "setting".
+GERUND='[A-Za-z]+ing([^A-Za-z]|$)'
+
+# Words ending in -ing that are never the progress verb of an announcement.
+# Nouns and adjectives from legitimate turn endings only; verbs stay out,
+# because "bring up the stack:" is an announcement worth blocking.
+NOTGERUND='^(during|morning|evening|warning|pending|missing|something|anything|nothing|everything|thing|string)$'
+
+_announce_colon() {
+  # Trailing colon plus a progress gerund in the tail. The colon alone is too
+  # broad (summaries, code), the gerund alone too; together they caught all 7
+  # measured colon stalls.
+  local tail left
+  printf '%s' "$MESSAGE" | grep -Eq ':[[:space:]]*$' || return 1
+  tail="$(printf '%s' "$MESSAGE" | tail -c 150)"
+  left="$(printf '%s' "$tail" | grep -Eoi "$GERUND" | grep -Eoi '[A-Za-z]+ing' | grep -Evi "$NOTGERUND" || true)"
+  [ -n "$left" ]
+}
+
+_announce_now() {
+  # Now/Next leading through a separator into a gerund: "Now the big one:
+  # rewriting", "Now the bead-graph fixes -- adding". The separator must sit
+  # right before the gerund, so "Now the tests pass" and "Next to the logs"
+  # never match.
+  local segs seg g
+  segs="$(printf '%s' "$MESSAGE" | grep -Eoi "(^|[^A-Za-z])(now|next)[^A-Za-z].{0,120}[:,—–-][^A-Za-z]{0,10}$GERUND" || true)"
+  [ -n "$segs" ] || return 1
+  while IFS= read -r seg; do
+    [ -n "$seg" ] || continue
+    g="$(printf '%s' "$seg" | grep -Eoi "$GERUND" | tail -1 | grep -Eoi '[A-Za-z]+ing')"
+    [ -z "$g" ] && continue
+    printf '%s' "$g" | grep -Eqi "$NOTGERUND" || return 0
+  done < <(printf '%s\n' "$segs")
+  return 1
+}
+
+CLASS=""
+if printf '%s' "$MESSAGE" | grep -Eqi "$ASKING"; then
+  CLASS="asking-permission"
+elif printf '%s' "$MESSAGE" | grep -Eqi "$LOOPCLAIM"; then
+  CLASS="unarmed-loop-claim"
+elif _announce_colon || _announce_now; then
+  CLASS="announce-stop"
+fi
+
+if [ -z "$CLASS" ]; then
+  echo "continue-gate: turn did not end asking to continue, announcing work, or claiming a loop; allowing."
   exit 0
 fi
 
@@ -85,19 +150,32 @@ esac
 # again, which is the hang this bound exists to prevent. A fresh episode
 # (stop_hook_active false) resets it above.
 if [ "$COUNT" -ge "$MAX_BLOCKS" ]; then
-  echo "continue-gate: allowing after $MAX_BLOCKS blocks; the turn still ends by asking to continue."
+  echo "continue-gate: allowing after $MAX_BLOCKS blocks ($CLASS); the turn still ends that way."
   exit 0
 fi
 
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 find "$STATE_DIR" -type f -mtime +1 -delete 2>/dev/null || true
 echo $((COUNT + 1)) >"$COUNTER"
+echo "continue-gate: blocked ($CLASS, block $((COUNT + 1))/$MAX_BLOCKS)."
 
-cat >&2 <<'MSG'
+case "$CLASS" in
+  asking-permission)
+    cat >&2 <<'MSG'
 You ended the turn asking whether to continue. You already have the go-ahead.
 
-Take the next step now. If the work is genuinely finished, say so plainly
-without a question. If a decision is really the user's to make, call
-AskUserQuestion - asking in prose ends the turn, asking with the tool does not.
+Take the next step now. If the work is genuinely finished, say so plainly without a question. If a decision is really the user's to make, call AskUserQuestion - asking in prose ends the turn, asking with the tool does not.
 MSG
+    ;;
+  unarmed-loop-claim)
+    cat >&2 <<'MSG'
+You said the loop is armed, but no wakeup or cron is in flight. The claim is not the call: invoke ScheduleWakeup (dynamic) or CronCreate (fixed) in this turn, before it ends. Never claim arming before the call returns.
+MSG
+    ;;
+  announce-stop)
+    cat >&2 <<'MSG'
+You announced the next step but ended the turn without taking it. Call the tool now. If the work is genuinely finished, say so plainly with no trailing colon.
+MSG
+    ;;
+esac
 exit 2

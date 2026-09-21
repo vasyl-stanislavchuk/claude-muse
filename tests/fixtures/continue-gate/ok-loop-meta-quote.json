@@ -1,0 +1,7 @@
+{
+  "stop_hook_active": false,
+  "session_id": "fixture-ok-loop-meta-quote",
+  "background_tasks": [],
+  "session_crons": [],
+  "last_assistant_message": "Claiming 'loop armed' without arming anything gets called out."
+}

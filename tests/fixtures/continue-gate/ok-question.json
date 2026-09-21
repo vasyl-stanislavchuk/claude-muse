@@ -1,0 +1,7 @@
+{
+  "stop_hook_active": false,
+  "session_id": "fixture-ok-question",
+  "background_tasks": [],
+  "session_crons": [],
+  "last_assistant_message": "Which header should the snapshot file use?"
+}

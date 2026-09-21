@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.0] - 2026-09-21
 
 ### Added
 
@@ -9,11 +9,18 @@
 - **The architecture diagram is now a five-level set**, walking from system context down through the request lifecycle, repair layers, and retry policy to the launch loop, so you read only the depth your question needs.
 - **A `/review-learned` skill walks you through the learned-state review**, assembling strip counts and the shape census into a promote, watch, prune, or investigate verdict per field, with the full flow written up alongside it.
 - **The `stop_sequences` strip is now pinned policy instead of learned memory**, with an offline test and a probe row proving the endpoint still rejects it.
+- **`/loop` and its scheduling tools no longer wait on a safety verdict.** `Skill`, `CronCreate`, `ScheduleWakeup`, `Monitor` and friends join the allowed tools, so a loop heartbeat survives a spark classifier timeout; an existing `settings.json` needs them added by hand, and the installer names them.
 
 ### Changed
 
 - **A review md opens on Muse can post its findings without waiting on a safety verdict.** `gh api`, `gh pr review`, `gh issue view` and `git cat-file` join the allowed tools, matching the main Claude profile; an existing `settings.json` needs them added by hand, and the installer names them.
 - **Re-running the installer leaves a healthy proxy alone** when its launch agent has not changed, so an update never cuts off a session mid-request.
+
+### Fixed
+
+- **A turn that announces its next step instead of taking it gets blocked, not ended.** The stop hook now catches trailing-colon and Now/Next announcements with no tool call and feeds the reminder back to the model; the sweep shows all 9 stalls in the measured session would have been caught.
+- **Claiming "loop armed" without arming anything gets called out.** The stop hook blocks the claim when no wakeup or cron is in flight, naming the exact call to make.
+- **Stop-hook reminders now read as whole paragraphs.** The block messages no longer wrap mid-sentence, so the feedback lands as plain sentences instead of indented fragments.
 
 ## [0.3.0] - 2026-09-20
 

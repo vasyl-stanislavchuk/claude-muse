@@ -1,0 +1,7 @@
+{
+  "stop_hook_active": false,
+  "session_id": "fixture-block-asking-say-the-word",
+  "background_tasks": [],
+  "session_crons": [],
+  "last_assistant_message": "Say the word and I'll start executing from Step 0."
+}

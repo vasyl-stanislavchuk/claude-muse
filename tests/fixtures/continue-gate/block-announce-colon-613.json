@@ -1,0 +1,7 @@
+{
+  "stop_hook_active": false,
+  "session_id": "fixture-block-announce-colon-613",
+  "background_tasks": [],
+  "session_crons": [],
+  "last_assistant_message": "S1 green \u2014 7 passed, mypy strict clean. Closing w0.2 and moving to S2:"
+}

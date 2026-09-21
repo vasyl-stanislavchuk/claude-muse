@@ -1,0 +1,11 @@
+{
+  "stop_hook_active": false,
+  "session_id": "fixture-ok-announce-with-tasks",
+  "background_tasks": [
+    {
+      "id": "agent-1"
+    }
+  ],
+  "session_crons": [],
+  "last_assistant_message": "S1 green \u2014 7 passed, mypy strict clean. Closing w0.2 and moving to S2:"
+}

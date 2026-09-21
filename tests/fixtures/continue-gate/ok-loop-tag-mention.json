@@ -1,0 +1,7 @@
+{
+  "stop_hook_active": false,
+  "session_id": "fixture-ok-loop-tag-mention",
+  "background_tasks": [],
+  "session_crons": [],
+  "last_assistant_message": "The gate tags it blocked (unarmed-loop-claim, block 1/2) in the transcript."
+}

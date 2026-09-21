@@ -1,0 +1,7 @@
+{
+  "stop_hook_active": false,
+  "session_id": "fixture-ok-moving-past",
+  "background_tasks": [],
+  "session_crons": [],
+  "last_assistant_message": "I finished moving the files yesterday."
+}

@@ -1,0 +1,7 @@
+{
+  "stop_hook_active": false,
+  "session_id": "fixture-block-loop-period",
+  "background_tasks": [],
+  "session_crons": [],
+  "last_assistant_message": "Loop armed: I will work the wave now and re-schedule at the end of each turn until it is complete."
+}

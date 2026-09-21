@@ -1,0 +1,7 @@
+{
+  "stop_hook_active": false,
+  "session_id": "fixture-ok-now-no-gerund",
+  "background_tasks": [],
+  "session_crons": [],
+  "last_assistant_message": "Now the tests pass."
+}

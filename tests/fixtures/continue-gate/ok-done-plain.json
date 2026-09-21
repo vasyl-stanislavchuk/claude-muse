@@ -1,0 +1,7 @@
+{
+  "stop_hook_active": false,
+  "session_id": "fixture-ok-done-plain",
+  "background_tasks": [],
+  "session_crons": [],
+  "last_assistant_message": "Done. The migration finished and the suite passes."
+}

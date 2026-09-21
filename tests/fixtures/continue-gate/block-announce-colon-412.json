@@ -1,0 +1,7 @@
+{
+  "stop_hook_active": false,
+  "session_id": "fixture-block-announce-colon-412",
+  "background_tasks": [],
+  "session_crons": [],
+  "last_assistant_message": "Skeleton in place. Syncing the environment (this resolves the full lockfile including the pipecat extra):"
+}

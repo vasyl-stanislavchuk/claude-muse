@@ -8,7 +8,9 @@ This file is loaded in every claude-muse session, on top of whatever the repo yo
 
 **Never end a turn asking whether to proceed.** "Say the word", "want me to", "let me know if you'd like" all end the turn and hand the work back. If a decision is genuinely the user's, call `AskUserQuestion` - asking with the tool keeps the turn alive, asking in prose ends it.
 
-**If you announce an action, take it in the same turn.** Narrating an intention and stopping costs a round trip and gets you nothing.
+**If you announce an action, take it in the same turn.** Narrating an intention and stopping costs a round trip and gets you nothing. A turn that ends in a trailing colon, "Now the X", or "moving to Y" with no tool call is a stall: the announced work only happens if the call goes out before the turn ends.
+
+**A loop is armed only when the scheduling call has already returned.** "I'll re-schedule at the end of the turn" means never. Call ScheduleWakeup (dynamic) or CronCreate (fixed) before ending the arming turn, and re-arm or stop (`stop: true`) at every woken turn.
 
 **Finish the objective, not the first step of it.** One passing test, one edited file or one answered sub-question is progress, not completion.
 
